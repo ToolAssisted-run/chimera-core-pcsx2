@@ -72,16 +72,31 @@ what they prove waits for the user's own dump (see the local-content paths in
 - **Savestates.** PCSX2 has them and they are thorough; whether they survive
   per-frame round-tripping under the sandbox is what the gate will say.
 
+## What the first boot answered
+
+**Speed: about 20 frames per second at the bios, on this machine.** 600 frames
+of the PS2's own boot animation took 29 seconds - EE, IOP and both vector units
+interpreting, the software renderer on its C++ scanline path, no fastmem, no
+recompilers, everything single-threaded. That is a THIRD of real time for a
+light scene, not the seconds-per-frame this port was braced for, and it settles
+the question the plan was gated on: the shape is worth finishing. A real game
+does far more work per frame than a boot logo does, so the recompilers remain
+the open question for playable speed - but they are now an optimisation rather
+than a precondition.
+
 ## Milestones
 
-- **M1 - the machine builds and initialises.** Curated source list, meson for
+- **M1 - the machine builds and initialises.** DONE 2026-08-27. Curated source list, meson for
   guest and native reference, a Host implementation, `cinterface.cpp` against
   the Chimera guest ABI. Proof (bios permitting): the EE executes to a fixed
   frame count identically native and waterboxed.
-- **M2 - no threads, no fastmem.** The two structural patches, each with the
-  gate leg that shows the machine still runs.
-- **M3 - the picture.** The software renderer, through the C scanline path,
-  into the frontend's framebuffer.
+- **M2 - no threads, no fastmem.** DONE 2026-08-27 (patch 0004 and the
+  interpreter settings). The gate leg that proves it is M4's work.
+- **M3 - the picture.** DONE 2026-08-27: the software renderer draws, a
+  graphics device made of memory (waterbox/gs-device.cpp) merges the two
+  display circuits, and the frame leaves through GetVideoBgra. The bios
+  animation is visible at 640x448. Textures and interlacing are undrawn by
+  anything so far; a real disc is what will test them.
 - **M4 - input, domains, savestates.** The legs every other core has.
 - **M5 - discs and memory cards.** ISO/CHD through the file slots, the memory
   card through the save-data channel, the bios through the firmware channel.
@@ -93,3 +108,45 @@ what they prove waits for the user's own dump (see the local-content paths in
   pinned at `e1dd0a0`. The verdict: harder than Flycast in two places (no HLE
   bios, a mandatory GS thread), easier in one that matters more (a real
   software renderer already exists), and gated on content the user will supply.
+
+- **2026-08-27** M1, M2 and M3 in one pass, driven by the user's bios dumps.
+  What it took, and what is worth remembering:
+
+  - **225 curated sources plus 108 dependency sources.** The recompilers and
+    the disassembler are COMPILED but never called: the EE and IOP opcode
+    tables name both implementations of every instruction, so a build without
+    them is a build with five hundred undefined symbols. Compiling what you do
+    not call was far cheaper than stubbing it, and it leaves the recompilers
+    one setting away.
+  - **zlib, zstd and lz4 are now submodules.** PCSX2 takes all three from the
+    system; a sandbox has no system. They are what CHD, CSO and the GS dump
+    formats are made of.
+  - **Four patches**, each a build option rather than a deletion: the scanline
+    JIT (0001), the hardware renderer and its device factory (0002), the SDL
+    input source under the pad container (0003), and the GS thread (0004).
+  - **The GS runs inline.** MTGS is a ring buffer with one producer and one
+    consumer; patch 0004 lifts the consumer out of the thread's main loop into
+    a function, and the producer calls it. Five entry points changed; the ring
+    buffer, the packet formats and the GS itself are untouched.
+  - **The infinite loop that cost the most.** With no GPU backends compiled,
+    `GetAPIForRenderer` falls through to "ask for the PREFERRED renderer",
+    which in this build is the software one, which falls through again. The
+    open hung, silently, with the log buffered where nobody could see it.
+  - **Logging has to be set through PCSX2's own settings.** Calling
+    `Log::SetConsoleOutputLevel` directly works right up until the next
+    settings load turns it back off, which is where the silence came from.
+
+## What is known to be wrong, and is next
+
+- **The machine reads the host clock.** The bios stamps the PS2's date and time
+  from the computer it is running on ("Resulting System Time: 2026-08-27"),
+  which is exactly the class of bug Flycast had: two runs of the same movie
+  start from two different machines. It must come from the project, as a pinned
+  setting, before any gate can mean anything.
+- **The equivalence gate does not exist yet.** The native reference runs; the
+  guest build has not been attempted since the ABI was written.
+- **Save data and the disc formats** (M5) are unwired: memory cards live and
+  die with the machine, and only ISO is reachable until CHD is tested.
+- **Lag detection reports every frame as a lag frame**, because nothing calls
+  `chimera_input_was_read` yet - the hook belongs where the pad answers the
+  SIO's poll.

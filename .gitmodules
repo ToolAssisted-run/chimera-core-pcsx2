@@ -1,3 +1,12 @@
 [submodule "extern/pcsx2"]
 	path = extern/pcsx2
 	url = https://github.com/PCSX2/pcsx2.git
+[submodule "extern/zlib"]
+	path = extern/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "extern/zstd"]
+	path = extern/zstd
+	url = https://github.com/facebook/zstd.git
+[submodule "extern/lz4"]
+	path = extern/lz4
+	url = https://github.com/lz4/lz4.git

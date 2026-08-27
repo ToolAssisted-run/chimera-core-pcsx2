@@ -1,0 +1,27 @@
+diff --git a/pcsx2/SIO/Pad/Pad.cpp b/pcsx2/SIO/Pad/Pad.cpp
+index 7065e2c..2d10969 100644
+--- a/pcsx2/SIO/Pad/Pad.cpp
++++ b/pcsx2/SIO/Pad/Pad.cpp
+@@ -12,7 +12,12 @@
+ #include "SIO/Pad/PadNotConnected.h"
+ #include "SIO/Sio.h"
+ 
++// chimera: the pad container is the machine and is compiled; the SDL input
++// SOURCE behind it is not, because a frontend has already turned a person into
++// a button state by the time input reaches a core.
++#ifndef CHIMERA_NO_INPUT_SOURCES
+ #include "Input/SDLInputSource.h"
++#endif
+ 
+ #include "IconsFontAwesome.h"
+ 
+@@ -173,7 +178,9 @@ void Pad::SetDefaultControllerConfig(SettingsInterface& si)
+ 	si.SetBoolValue("Pad", "MultitapPort2", false);
+ 	si.SetFloatValue("Pad", "PointerXScale", 8.0f);
+ 	si.SetFloatValue("Pad", "PointerYScale", 8.0f);
++#ifndef CHIMERA_NO_INPUT_SOURCES
+ 	SDLInputSource::ResetRGBForAllPlayers(si);
++#endif
+ 
+ 	// PCSX2 Controller Settings - Default pad types and parameters.
+ 	for (u32 i = 0; i < Pad::NUM_CONTROLLER_PORTS; i++)

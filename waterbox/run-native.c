@@ -1,6 +1,6 @@
 /* run-native.c - the native reference for the equivalence gate.
  *
- * Links the SAME cinterface.c + Genesis Plus GX objects the guest build uses
+ * Links the SAME cinterface.cpp + PCSX2 objects the guest build uses
  * (emulibc degraded to malloc by native-shim/) and drives the exports
  * directly. The work dir holds the same files the sandbox would see mounted:
  * the rom under its real name, plus optional "slots" and "settings" JSON.
@@ -10,6 +10,7 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include "gate-harness.h"
@@ -52,6 +53,11 @@ static const uint8_t *domain_ptr(int i) { return GetMemoryDomainPtr(i); }
 
 int main(int argc, char **argv)
 {
+	/* Unbuffered: PCSX2 says a great deal on its way up, and a run that hangs
+	 * must not take the last thing it said down with it. */
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
+
 	if (argc < 2)
 	{
 		fprintf(stderr, "usage: run-native <workdir> [options]\n");
@@ -88,5 +94,13 @@ int main(int argc, char **argv)
 		.savedata_buffer = GetSaveDataFileBuffer,
 		.pre_frame = NULL,
 	};
-	return gate_run(&c, &o);
+	/* The run is over, and the machine is about to be discarded. PCSX2's memory
+	 * mappings outlive main() and assert on their way out if a VM was never
+	 * shut down - which is exactly the case here, because a sandboxed core has
+	 * no shutdown: the frontend drops the whole guest. Leaving through _exit
+	 * says the same thing on this side, and keeps the gate's exit code
+	 * meaningful. */
+	const int rc = gate_run(&c, &o);
+	fflush(NULL);
+	_exit(rc);
 }

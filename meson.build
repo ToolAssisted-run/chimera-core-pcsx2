@@ -42,7 +42,10 @@ defs = [
   # The software renderer generates its scanline routines at runtime through
   # xbyak. A sandbox would rather not host a code generator, and does not have
   # to: GSDrawScanline::CDrawScanline is the C++ path this build takes.
-  '-DCHIMERA_NO_JIT_RASTERIZER',
+  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD',
+  # zstd ships hand-written amd64 assembly for one decode loop. The C path is
+  # the same bytes out and one source language fewer in a cross-built guest.
+  '-DZSTD_DISABLE_ASM',
   '-Wno-deprecated-declarations',
   '-Wno-unused-variable',
   # PCSX2 refuses to compile below SSE 4.1, and the emulation itself uses those
@@ -56,6 +59,7 @@ defs = [
   # redeclare basename() and collide with the C library's.
   '-DHAVE_DECL_BASENAME=1', '-DHAVE_LIMITS_H=1', '-DHAVE_STDLIB_H=1',
   '-DHAVE_STRING_H=1',
+
 ]
 add_project_arguments(defs, language: ['c', 'cpp'])
 
@@ -72,10 +76,18 @@ inc = include_directories(
   fc / '3rdparty/imgui/include',
   fc / '3rdparty/ccc/src',
   fc / '3rdparty/demangler/include',
+  fc / '3rdparty/freesurround/include',
+  'extern/zlib',
+  'extern/zstd/lib',
+  fc / '3rdparty/soundtouch',
+  fc / '3rdparty/soundtouch/soundtouch',
   fc / '3rdparty/xbyak',
   fc / '3rdparty/include',
   fc / '3rdparty/cpuinfo/include',
   fc / '3rdparty/zydis/include',
+  # lz4 comes last: it carries a private xxhash.h, and PCSX2's own copy (in
+  # 3rdparty/include) is the one GSXXH.cpp needs the internals of.
+  'extern/lz4/lib',
   'waterbox',
   'waterbox/generated',
 )
@@ -91,6 +103,13 @@ deps_lib = static_library('pcsx2-deps', dep_sources, include_directories: inc)
 # refuses and why; none of them patch upstream.
 driver_sources = files(
   'waterbox/cinterface.cpp',
+  'waterbox/host.cpp',
+  'waterbox/host-sys.cpp',
+  'waterbox/gs-device.cpp',
+  'waterbox/audio-stream.cpp',
+  'waterbox/stubs/frontend.cpp',
+  'waterbox/stubs/peripherals.cpp',
+  'waterbox/stubs/refused.cpp',
   'waterbox/stubs/host-stubs.cpp',
   'waterbox/stubs/posix-stubs.cpp',
   # the software renderer: skmp's reference rasteriser (BSD-3), and the walker

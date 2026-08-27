@@ -1,0 +1,74 @@
+diff --git a/pcsx2/GS/GS.cpp b/pcsx2/GS/GS.cpp
+index 8291c3b..a179a8e 100644
+--- a/pcsx2/GS/GS.cpp
++++ b/pcsx2/GS/GS.cpp
+@@ -18,7 +18,14 @@
+ #include "MTGS.h"
+ #include "pcsx2/GS.h"
+ #include "GS/Renderers/Null/GSRendererNull.h"
++// chimera: a build with no GPU in it does not compile the hardware renderer,
++// and a factory that names a renderer it did not compile does not link. The
++// software renderer is the machine's own, and the one this core draws with.
++#ifndef CHIMERA_SOFTWARE_ONLY
+ #include "GS/Renderers/HW/GSRendererHW.h"
++#else
++std::unique_ptr<GSDevice> MakeChimeraGSDevice();
++#endif
+ #include "GS/Renderers/HW/GSTextureReplacements.h"
+ #include "VMManager.h"
+ 
+@@ -77,6 +84,13 @@ std::string GetDefaultAdapter()
+ 
+ static RenderAPI GetAPIForRenderer(GSRendererType renderer)
+ {
++#ifdef CHIMERA_SOFTWARE_ONLY
++	// chimera: there is one device and it is not a graphics API. Upstream's
++	// fallthrough asks for the PREFERRED renderer instead, which in a build
++	// with no GPU backends is the software one, which falls through again: an
++	// infinite loop inside the GS open, and the first thing this port hit.
++	return RenderAPI::None;
++#else
+ 	switch (renderer)
+ 	{
+ 		case GSRendererType::OGL:
+@@ -102,12 +116,18 @@ static RenderAPI GetAPIForRenderer(GSRendererType renderer)
+ 		default:
+ 			return GetAPIForRenderer(GSUtil::GetPreferredRenderer());
+ 	}
++#endif
+ }
+ 
+ static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool recreate_window,
+ 	GSVSyncMode vsync_mode, bool allow_present_throttle)
+ {
+ 	const RenderAPI new_api = GetAPIForRenderer(renderer);
++#ifdef CHIMERA_SOFTWARE_ONLY
++	// chimera: there is one device, it is made of memory, and it is the only
++	// one this build knows how to create (waterbox/gs-device.cpp).
++	g_gs_device = MakeChimeraGSDevice();
++#else
+ 	switch (new_api)
+ 	{
+ #ifdef _WIN32
+@@ -139,6 +159,7 @@ static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool
+ 			Console.Error("Unsupported render API %s", GSDevice::RenderAPIToString(new_api));
+ 			return false;
+ 	}
++#endif
+ 
+ 	bool okay = g_gs_device->Create(vsync_mode, allow_present_throttle);
+ 	if (okay)
+@@ -211,11 +232,13 @@ static bool OpenGSRenderer(GSRendererType renderer, u8* basemem)
+ 	{
+ 		g_gs_renderer = std::make_unique<GSRendererNull>();
+ 	}
++#ifndef CHIMERA_SOFTWARE_ONLY
+ 	else if (renderer != GSRendererType::SW)
+ 	{
+ 		GSClampUpscaleMultiplier(GSConfig);
+ 		g_gs_renderer = std::make_unique<GSRendererHW>();
+ 	}
++#endif
+ 	else
+ 	{
+ 		g_gs_renderer = std::unique_ptr<GSRenderer>(MULTI_ISA_SELECT(makeGSRendererSW)(GSConfig.SWExtraThreads));
