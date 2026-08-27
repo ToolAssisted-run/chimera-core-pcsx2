@@ -19,9 +19,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* the wire this core declares: Power, the four console switches plus TV type,
- * and two ports of five buttons (waterbox.config "input.buttons") */
-#define GATE_BTN_COUNT 16
+/* the wire this core declares: one DualShock 2 - the d-pad, start and select,
+ * the four face buttons, the four shoulders, the two stick clicks and the
+ * analog toggle (waterbox.config "input.buttons") */
+#define GATE_BTN_COUNT 17
+
+/* how many scripted presses one run may carry (--press) */
+#define GATE_MAX_PRESSES 32
 
 struct gate_core
 {
@@ -61,6 +65,13 @@ struct gate_opts
 	const char *savedataDir;    /* optional: write every savedata export here after the run */
 	int exercisePad;      /* also drive this pad number (2..8) with the exercise, or 0 */
 	int wiggleAxes;       /* nonzero: drive every axis with a deterministic wander */
+	/* Scripted presses: --press <frame>:<count>:<wire index>, repeatable. The
+	 * exercise schedule is a fine way to prove input REACHES the machine, and
+	 * a poor way to ask a game a question - a title screen wants "left, then
+	 * confirm", not a coin toss. The index is the core's own wire order, which
+	 * is the order its waterbox.config declares. */
+	struct { long first, count; int index; } press[GATE_MAX_PRESSES];
+	int presses;
 };
 
 static uint64_t gate_fnv(uint64_t h, const void *p, size_t n)
@@ -250,6 +261,15 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 			}
 		}
 
+		for (int pi = 0; pi < o->presses; pi++)
+		{
+			if (f >= o->press[pi].first && f < o->press[pi].first + o->press[pi].count
+				&& o->press[pi].index >= 0 && o->press[pi].index < GATE_BTN_COUNT)
+			{
+				buttons[o->press[pi].index] = 1;
+			}
+		}
+
 		if (o->wiggleAxes && c->set_axis)
 		{
 			/* a deterministic wander: mouse deltas -2..2, gun coords circling
@@ -357,6 +377,7 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 	o->savedataDir = NULL;
 	o->exercisePad = 0;
 	o->wiggleAxes = 0;
+	o->presses = 0;
 	for (int i = first; i < argc; i++)
 	{
 		if (!strcmp(argv[i], "--frames") && i + 1 < argc) o->frames = strtol(argv[++i], 0, 0);
@@ -370,6 +391,20 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 		else if (!strcmp(argv[i], "--savedata-out") && i + 1 < argc) o->savedataDir = argv[++i];
 		else if (!strcmp(argv[i], "--exercise-pad") && i + 1 < argc) o->exercisePad = (int)strtol(argv[++i], 0, 0);
 		else if (!strcmp(argv[i], "--wiggle-axes")) o->wiggleAxes = 1;
+		else if (!strcmp(argv[i], "--press") && i + 1 < argc)
+		{
+			if (o->presses >= GATE_MAX_PRESSES) { fprintf(stderr, "too many --press\n"); return 0; }
+			long first = 0, count = 0; int index = -1;
+			if (sscanf(argv[++i], "%ld:%ld:%d", &first, &count, &index) != 3)
+			{
+				fprintf(stderr, "--press wants <frame>:<count>:<wire index>\n");
+				return 0;
+			}
+			o->press[o->presses].first = first;
+			o->press[o->presses].count = count;
+			o->press[o->presses].index = index;
+			o->presses++;
+		}
 		else if (!strcmp(argv[i], "--rerecord")) ; /* run-wbx's; ignored here */
 		else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 0; }
 	}

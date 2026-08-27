@@ -174,6 +174,30 @@ What it took, in the order the sandbox found them:
 - **Three syscalls** the sandbox does not have: mkdir, prctl, and the two glibc
   extensions musl lacks (gettid and two sysconf queries).
 
+## A game
+
+**2026-08-27: Golden Axe (SLPM-62385, a raw 2352-byte-sector PS2 CD) boots to
+its character select screen** - a textured 3D model, an alpha-blended
+background, Japanese text - and the sandboxed build is byte identical to the
+native one over 1600 frames including scripted input.
+
+- **Speed with a real game: about 19-25 fps** (1600 frames in 64s, 4000 frames
+  in 211s), and the sandbox costs nothing measurable here: 63.4s against 64.2s
+  over the same 1600 frames.
+- **The disc needed nothing.** PCSX2 read the raw CD image as it was, found the
+  PVD, parsed SYSTEM.CNF and loaded the ELF. Fast boot (a project setting)
+  skips the bios animation and boots it directly.
+- **Input reaches the machine**, through PCSX2's own pad container: the game's
+  "no memory card, start anyway?" prompt was answered with a scripted LEFT and
+  CIRCLE, and it moved on.
+- **Deinterlacing had to be pinned off.** PCSX2's default is Automatic, which
+  chose a MOTION ADAPTIVE deinterlacer - it compares the last three fields and
+  decides per pixel what to show. That is not a picture a movie can promise to
+  reproduce, and it arrived as two half-height copies of the frame stacked on
+  top of each other. Progressive is the merged frame the GS actually produced.
+- Two more syscalls the sandbox lacked: getcwd (the answer is "here") and
+  lstat (there are no links).
+
 ## What is known to be wrong, and is next
 
 - **The equivalence gate is not written yet**, though everything it needs now
@@ -181,8 +205,7 @@ What it took, in the order the sandbox found them:
   round-trip.
 - **Memory cards have no home.** They are switched off, because a card is a
   file and this core writes no files. The save-data channel is M5.
-- **Discs are untested.** Only the bios has ever been booted; ISO, CHD and CSO
-  all compile and none has been read.
-- **Lag detection reports every frame as a lag frame**, because nothing calls
-  `chimera_input_was_read` yet - the hook belongs where the pad answers the
-  SIO's poll.
+- **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO
+  compile and neither has been read.
+- **Lag detection reports every frame as a lag frame.** The hook belongs where
+  the pad answers the SIO's poll, and without it a movie cannot count lag.

@@ -73,3 +73,34 @@ extern "C" int mkdir(const char *path, mode_t mode)
  * thread here and no profiler, and the sandbox has no kernel to hold the name.
  */
 extern "C" int prctl(int option, ...) { return 0; }
+
+/* Where the machine is.
+ *
+ * PCSX2 resolves a relative path by asking where the process is standing. A
+ * sandbox stands in the one directory it has, which is where every mounted
+ * file already is - so the answer is "here", and a path resolved against it
+ * comes back unchanged.
+ */
+extern "C" char *getcwd(char *buf, size_t size)
+{
+	if (!buf || size < 2)
+	{
+		errno = ERANGE;
+		return nullptr;
+	}
+
+	buf[0] = '.';
+	buf[1] = '\0';
+	return buf;
+}
+
+/* Following a link.
+ *
+ * There are no links in a sandbox - there is a flat list of mounted files - so
+ * asking about a name without following links is the same question as asking
+ * about the file.
+ */
+extern "C" int lstat(const char *path, struct stat *st)
+{
+	return stat(path, st);
+}

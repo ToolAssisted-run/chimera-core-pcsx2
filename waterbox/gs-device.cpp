@@ -37,6 +37,8 @@
 #include "common/Console.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -120,6 +122,16 @@ namespace
 		int m_pitch = 0;
 		std::vector<u8> m_data;
 	};
+
+	/* Set CHIMERA_GS_TRACE to see how a frame is assembled: which display
+	 * circuits are on, and where each lands in the picture. It is how the
+	 * first game's doubled image was traced to PCSX2's adaptive deinterlacer.
+	 */
+	bool ChimeraGSTrace()
+	{
+		static const bool on = getenv("CHIMERA_GS_TRACE") != nullptr;
+		return on;
+	}
 
 	/* A point-sampled scaled copy: the one drawing operation this device
 	 * really performs. Everything else here is a special case of it.
@@ -275,6 +287,19 @@ namespace
 			if (!dst)
 				return;
 
+			if (ChimeraGSTrace())
+			{
+				fprintf(stderr, "merge: dst %dx%d EN1=%d EN2=%d\n", dst->GetSize().x, dst->GetSize().y, PMODE.EN1, PMODE.EN2);
+				for (int i = 0; i < 2; i++)
+				{
+					if (!sTex[i]) { fprintf(stderr, "  [%d] none\n", i); continue; }
+					fprintf(stderr, "  [%d] src %dx%d sRect %.3f %.3f %.3f %.3f dRect %.1f %.1f %.1f %.1f\n", i,
+						sTex[i]->GetSize().x, sTex[i]->GetSize().y,
+						sRect[i].x, sRect[i].y, sRect[i].z, sRect[i].w,
+						dRect[i].x, dRect[i].y, dRect[i].z, dRect[i].w);
+				}
+			}
+
 			/* The background the circuits are drawn over. */
 			std::memset(dst->GetBits(), 0, static_cast<size_t>(dst->GetPitch()) * dst->GetSize().y);
 
@@ -291,6 +316,10 @@ namespace
 		void DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
 			ShaderInterlace shader, Filter filter, const InterlaceConstantBuffer& cb) override
 		{
+			if (ChimeraGSTrace())
+				fprintf(stderr, "interlace: shader=%d src %dx%d sRect %.3f %.3f %.3f %.3f dRect %.1f %.1f %.1f %.1f\n",
+					(int)shader, sTex ? sTex->GetSize().x : 0, sTex ? sTex->GetSize().y : 0,
+					sRect.x, sRect.y, sRect.z, sRect.w, dRect.x, dRect.y, dRect.z, dRect.w);
 			BlitScaled(static_cast<ChimeraTexture*>(sTex), sRect, static_cast<ChimeraTexture*>(dTex), dRect);
 		}
 

@@ -215,6 +215,18 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	 * nothing else in the build. */
 	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::SW));
 	si.SetIntValue("EmuCore/GS", "extrathreads", 0);
+
+	/* No deinterlacing.
+	 *
+	 * A PS2 scans out two fields, and PCSX2's default is "Automatic", which
+	 * picks a MOTION ADAPTIVE deinterlacer: it compares this field with the
+	 * last two and decides, per pixel, what to show. That is a picture no
+	 * movie can promise to reproduce, and it is not what the console put on
+	 * the wire. Progressive means the merged frame the GS actually produced,
+	 * which is what a frontend should be handed. (It is also what the first
+	 * game booted here needed: with the adaptive path the two fields arrived
+	 * stacked, one above the other, and every line of text appeared twice.) */
+	si.SetIntValue("EmuCore/GS", "deinterlace_mode", static_cast<int>(GSInterlaceMode::Off));
 	si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowMessages", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowSpeed", false);
