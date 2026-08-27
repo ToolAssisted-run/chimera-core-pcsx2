@@ -55,6 +55,7 @@
 #include "VUmicro.h"
 #include "common/Console.h"
 #include "common/Error.h"
+#include "common/FileSystem.h"
 #include "fmt/format.h"
 #include "common/SettingsInterface.h"
 
@@ -243,6 +244,15 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore/GS", "OsdShowSpeed", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowFPS", false);
 
+	/* No time stretching.
+	 *
+	 * SPU2's default sync mode RESHAPES the samples - it stretches or squeezes
+	 * them to keep an audio device's buffer from running dry, which is exactly
+	 * the right thing for an emulator with a sound card and exactly the wrong
+	 * thing for a core. A frame's samples are the ones the SPU2 produced; what
+	 * a frontend does about buffering afterwards is its own business. */
+	si.SetStringValue("SPU2/Output", "SyncMode", "Disabled");
+
 	/* No MTVU: a vector unit on a second thread, and there is one thread. */
 	si.SetBoolValue("EmuCore/Speedhacks", "vuThread", false);
 
@@ -388,15 +398,27 @@ ECL_EXPORT int Init(void)
 	/* The disc, if the project has one. A PS2 with no disc is a PS2 sitting at
 	 * its own bios menu, which is a machine worth being able to boot: it is
 	 * what proves the core runs before any content exists. */
+	/* Two ways a disc arrives, and both must work. A PROJECT names its files,
+	 * and the slot map says which is the disc. A rom opened directly - the
+	 * frontend's command line, and the way a package is usually tried first -
+	 * is mounted under the name waterbox.config gives as "romFile", with no
+	 * slot map at all. Handling only the first is a core that works in a
+	 * project and boots an empty tray everywhere else, which is exactly what
+	 * the first frontend run of this core did. */
 	VMBootParameters boot;
 	char name[512];
+	const char* file = "disc";
 	if (wbx_slot_count("disc") > 0 && wbx_slot_name("disc", 0, name, sizeof(name)) != nullptr)
+		file = name;
+
+	if (FileSystem::FileExists(file))
 	{
-		boot.filename = name;
+		boot.filename = file;
 		boot.source_type = CDVD_SourceType::Iso;
 	}
 	else
 	{
+		/* No disc is a machine too: a console sitting at its own browser. */
 		boot.source_type = CDVD_SourceType::NoDisc;
 	}
 

@@ -102,7 +102,29 @@ than a precondition.
   the disc through a file slot, the bios through the firmware channel, the
   memory cards and the console's NVRAM through the save-data channel. CHD and
   CSO compile but have not been read.
-- **M6 - the frontend leg.** The package inside Chimera. NOT STARTED.
+- **M6 - the frontend leg.** DONE 2026-08-27. The package
+  (`waterbox.config`, the file slots, the DualShock 2's default bindings, the
+  licences and the deterministic zip) loads in Chimera, and 200 frames of a
+  game inside the frontend are byte-identical to the native reference.
+
+## The package
+
+`waterbox/build-package.sh` builds `pcsx2.chimeraCore`: the core, the config,
+the file-slot declaration the wizard renders, the DualShock 2's default
+bindings, and the licences of all thirteen components. Deterministic - the
+zip's sha1 is checked twice at build time, because that hash is the core's
+identity and movies cite it.
+
+Two things the frontend leg found that nothing else could have:
+
+- **A rom opened directly is not a project.** The core only knew how to find a
+  disc through a project's slot map; a rom opened from the command line arrives
+  mounted under the name `waterbox.config` calls `romFile`, and the core booted
+  an empty tray. The first version of the gate leg did not notice, because two
+  hundred frames of the console's own startup look the same with an empty tray
+  as with a disc - so that leg now boots the disc's own program instead.
+- **A setting has to be tested where it lands.** The console's clock changes
+  the IOP's memory long before the EE asks what time it is.
 
 ## The gate
 
@@ -253,5 +275,6 @@ straight to the browser. Guest and native produce the same kilobyte.
   without one.
 - **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO
   compile and neither has been read.
-- **The frontend leg (M6) does not exist**: no waterbox.config, no file slots,
-  no keybinds, no package. Nothing has ever run inside Chimera itself.
+- **Only ISO/BIN discs are tested.** CHD, CSO, ZSO and GZ compile, and the
+  package declares them, but none has been read.
+- **No multitap**, so no cards behind one, and no second controller.

@@ -75,6 +75,11 @@ if meson.is_cross_build()
     '-Dgettid=chimera_gettid',
     '-D_SC_LEVEL1_DCACHE_LINESIZE=-1',
     '-D_SC_LEVEL1_ICACHE_LINESIZE=-1',
+    # ...and one more thing musl's world does not have room for: thread-local
+    # storage. A sandboxed guest has one thread and its whole state must be
+    # visible to the frontend's savestate; a per-thread block is neither, and
+    # the guest toolchain rejects it outright.
+    '-DCHIMERA_NO_THREAD_LOCAL',
   ]
 endif
 

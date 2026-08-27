@@ -1,0 +1,93 @@
+{
+  "package": "pcsx2",
+  "effectiveTerms": "GPL-3.0-or-later",
+  "commercialUse": "allowed under the GPL",
+  "note": "The built core combines this repository's integration with PCSX2 and is distributed under the GPL-3.0-or-later, which is PCSX2's own licence and the strongest term in the package. Everything else it links is permissive or weaker copyleft and travels inside those terms: fmt, imgui, ccc, rapidjson, simpleini and fast_float are MIT-family; libchdr, xbyak, zlib, zstd and lz4 are BSD-family or zlib; the lzma SDK is public domain; SoundTouch is LGPL-2.1 and FreeSurround (with kiss_fft) is GPL-2.0-or-later, both of which the GPL-3 permits. No bios or disc is part of this package - a PlayStation 2 needs a dump the user supplies, and it never enters this repository.",
+  "components": [
+    {
+      "name": "chimera-core-pcsx2 (integration)",
+      "license": "MIT, and PCSX2's terms for patches/",
+      "url": "https://github.com/ToolAssisted-run/chimera-core-pcsx2",
+      "commit": "{selfCommit}",
+      "file": "LICENSE",
+      "sourceUrl": "https://github.com/ToolAssisted-run/chimera-core-pcsx2/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "PCSX2",
+      "license": "GPL-3.0-or-later",
+      "url": "https://github.com/PCSX2/pcsx2",
+      "commit": "{submodule:extern/pcsx2}",
+      "file": "extern/pcsx2/COPYING.GPLv3",
+      "sourceUrl": "https://github.com/PCSX2/pcsx2/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "fmt",
+      "license": "MIT",
+      "url": "https://github.com/fmtlib/fmt",
+      "file": "extern/pcsx2/3rdparty/fmt/LICENSE"
+    },
+    {
+      "name": "Dear ImGui",
+      "license": "MIT",
+      "url": "https://github.com/ocornut/imgui",
+      "file": "extern/pcsx2/3rdparty/imgui/LICENSE.txt"
+    },
+    {
+      "name": "libchdr",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/rtissera/libchdr",
+      "file": "extern/pcsx2/3rdparty/libchdr/LICENSE.txt"
+    },
+    {
+      "name": "LZMA SDK",
+      "license": "public domain",
+      "url": "https://www.7-zip.org/sdk.html",
+      "file": "extern/pcsx2/3rdparty/lzma/LICENSE.txt"
+    },
+    {
+      "name": "ccc (Chaos Compiler Collection)",
+      "license": "MIT",
+      "url": "https://github.com/chaoticgd/ccc",
+      "file": "extern/pcsx2/3rdparty/ccc/README.md"
+    },
+    {
+      "name": "the GNU demangler",
+      "license": "GPL-3.0-or-later (LGPL alternative offered upstream)",
+      "url": "https://gcc.gnu.org",
+      "file": "extern/pcsx2/3rdparty/demangler/DemanglerLicenseGPL.txt"
+    },
+    {
+      "name": "SoundTouch",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://www.surina.net/soundtouch/",
+      "file": "extern/pcsx2/3rdparty/soundtouch/COPYING.TXT"
+    },
+    {
+      "name": "FreeSurround (with kiss_fft)",
+      "license": "GPL-2.0-or-later",
+      "url": "https://hydrogenaud.io/index.php/topic,52235.0.html",
+      "file": "extern/pcsx2/3rdparty/freesurround/GPL.txt"
+    },
+    {
+      "name": "zlib",
+      "license": "zlib",
+      "url": "https://github.com/madler/zlib",
+      "commit": "{submodule:extern/zlib}",
+      "file": "extern/zlib/LICENSE"
+    },
+    {
+      "name": "Zstandard",
+      "license": "BSD-3-Clause (GPL-2.0 alternative offered upstream)",
+      "url": "https://github.com/facebook/zstd",
+      "commit": "{submodule:extern/zstd}",
+      "file": "extern/zstd/LICENSE"
+    },
+    {
+      "name": "LZ4",
+      "license": "BSD-2-Clause",
+      "url": "https://github.com/lz4/lz4",
+      "commit": "{submodule:extern/lz4}",
+      "file": "extern/lz4/LICENSE"
+    }
+  ]
+}

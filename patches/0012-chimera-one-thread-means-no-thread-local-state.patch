@@ -1,0 +1,86 @@
+diff --git a/common/emitter/x86emitter.cpp b/common/emitter/x86emitter.cpp
+index 0c70b8a..439fac1 100644
+--- a/common/emitter/x86emitter.cpp
++++ b/common/emitter/x86emitter.cpp
+@@ -48,9 +48,9 @@
+ //
+ 
+ 
+-thread_local u8* x86Ptr;
+-thread_local u8* xTextPtr;
+-thread_local XMMSSEType g_xmmtypes[iREGCNT_XMM] = {XMMT_INT};
++CHIMERA_THREAD_LOCAL u8* x86Ptr;
++CHIMERA_THREAD_LOCAL u8* xTextPtr;
++CHIMERA_THREAD_LOCAL XMMSSEType g_xmmtypes[iREGCNT_XMM] = {XMMT_INT};
+ 
+ bool x86Emitter::use_avx;
+ 
+diff --git a/common/emitter/x86types.h b/common/emitter/x86types.h
+index 559fb20..6b30e06 100644
+--- a/common/emitter/x86types.h
++++ b/common/emitter/x86types.h
+@@ -17,8 +17,20 @@ enum XMMSSEType
+ 	//XMMT_FPD = 3, // double
+ };
+ 
+-extern thread_local u8* x86Ptr;
+-extern thread_local XMMSSEType g_xmmtypes[iREGCNT_XMM];
++// chimera: a sandbox has ONE thread, and its whole state must be visible to
++// the frontend's savestate. Thread-local storage is neither: it lives in a
++// per-thread block the guest's state does not describe, and the guest
++// toolchain refuses it outright for that reason. The emitter's cursor and
++// register table are per-thread upstream because two recompiler threads may
++// generate code at once; here there is one, so they are ordinary globals.
++#ifdef CHIMERA_NO_THREAD_LOCAL
++#define CHIMERA_THREAD_LOCAL
++#else
++#define CHIMERA_THREAD_LOCAL thread_local
++#endif
++
++extern CHIMERA_THREAD_LOCAL u8* x86Ptr;
++extern CHIMERA_THREAD_LOCAL XMMSSEType g_xmmtypes[iREGCNT_XMM];
+ 
+ namespace x86Emitter
+ {
+diff --git a/pcsx2/x86/iCore.cpp b/pcsx2/x86/iCore.cpp
+index 9864868..fa17746 100644
+--- a/pcsx2/x86/iCore.cpp
++++ b/pcsx2/x86/iCore.cpp
+@@ -10,8 +10,8 @@
+ 
+ using namespace x86Emitter;
+ 
+-thread_local u8* j8Ptr[32];
+-thread_local u32* j32Ptr[32];
++CHIMERA_THREAD_LOCAL u8* j8Ptr[32];
++CHIMERA_THREAD_LOCAL u32* j32Ptr[32];
+ 
+ u16 g_x86AllocCounter = 0;
+ u16 g_xmmAllocCounter = 0;
+diff --git a/pcsx2/x86/iCore.h b/pcsx2/x86/iCore.h
+index 6e5f3d5..b463dab 100644
+--- a/pcsx2/x86/iCore.h
++++ b/pcsx2/x86/iCore.h
+@@ -293,8 +293,20 @@ static __fi bool FPUINST_RENAMETEST(u32 reg)
+ 
+ extern _xmmregs xmmregs[iREGCNT_XMM], s_saveXMMregs[iREGCNT_XMM];
+ 
+-extern thread_local u8* j8Ptr[32];   // depreciated item.  use local u8* vars instead.
+-extern thread_local u32* j32Ptr[32]; // depreciated item.  use local u32* vars instead.
++// chimera: a sandbox has ONE thread, and its whole state must be visible to
++// the frontend's savestate. Thread-local storage is neither: it lives in a
++// per-thread block the guest's state does not describe, and the guest
++// toolchain refuses it outright for that reason. The emitter's cursor and
++// register table are per-thread upstream because two recompiler threads may
++// generate code at once; here there is one, so they are ordinary globals.
++#ifdef CHIMERA_NO_THREAD_LOCAL
++#define CHIMERA_THREAD_LOCAL
++#else
++#define CHIMERA_THREAD_LOCAL thread_local
++#endif
++
++extern CHIMERA_THREAD_LOCAL u8* j8Ptr[32];   // depreciated item.  use local u8* vars instead.
++extern CHIMERA_THREAD_LOCAL u32* j32Ptr[32]; // depreciated item.  use local u32* vars instead.
+ 
+ extern u16 g_x86AllocCounter;
+ extern u16 g_xmmAllocCounter;

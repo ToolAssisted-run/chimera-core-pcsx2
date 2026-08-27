@@ -1,0 +1,62 @@
+{
+	"_comment": [
+		"Default bindings for the DualShock 2 this package declares. The frontend ships no",
+		"bindings of its own - a package that declares a controller says how it is played by",
+		"default, and the user's own bindings always win.",
+		"",
+		"The face buttons follow the pad's own geometry rather than a keyboard's alphabet:",
+		"Cross is the bottom one and takes the key under the hand, Circle the right, Square",
+		"the left, Triangle the top. The shoulders sit above and below each other the way they",
+		"do on the controller. Analog is a real button on a DualShock 2 - it switches the pad",
+		"between digital and analog mode, which a game can see - so it is bound rather than",
+		"assumed."
+	],
+	"AllTrollers": {
+		"DualShock 2": {
+			"Up": "Up, J1 POV1U, X1 DpadUp",
+			"Down": "Down, J1 POV1D, X1 DpadDown",
+			"Left": "Left, J1 POV1L, X1 DpadLeft",
+			"Right": "Right, J1 POV1R, X1 DpadRight",
+			"Start": "Enter, J1 B10, X1 Start",
+			"Select": "RightShift, J1 B9, X1 Back",
+			"Square": "A, J1 B1, X1 X",
+			"Cross": "Z, J1 B2, X1 A",
+			"Circle": "X, J1 B3, X1 B",
+			"Triangle": "S, J1 B4, X1 Y",
+			"L1": "Q, J1 B5, X1 LeftShoulder",
+			"R1": "W, J1 B6, X1 RightShoulder",
+			"L2": "1, J1 B7, X1 LeftTrigger",
+			"R2": "2, J1 B8, X1 RightTrigger",
+			"L3": "E, J1 B11, X1 LeftStick",
+			"R3": "R, J1 B12, X1 RightStick",
+			"Analog": "Tab"
+		}
+	},
+	"AllTrollersAutoFire": {
+		"DualShock 2": {}
+	},
+	"AllTrollersAnalog": {
+		"DualShock 2": {
+			"Left Stick X": {
+				"Value": "X1 LeftThumbX Axis",
+				"Mult": 1.0,
+				"Deadzone": 0.1
+			},
+			"Left Stick Y": {
+				"Value": "X1 LeftThumbY Axis",
+				"Mult": -1.0,
+				"Deadzone": 0.1
+			},
+			"Right Stick X": {
+				"Value": "X1 RightThumbX Axis",
+				"Mult": 1.0,
+				"Deadzone": 0.1
+			},
+			"Right Stick Y": {
+				"Value": "X1 RightThumbY Axis",
+				"Mult": -1.0,
+				"Deadzone": 0.1
+			}
+		}
+	}
+}

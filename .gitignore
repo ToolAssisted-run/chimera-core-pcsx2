@@ -16,3 +16,6 @@ tests/firmware-local/
 
 # the sandbox writes this when a guest faults
 minibox-diag.log
+
+# the frontend gate's scratch: configs, logs, RAM dumps and screenshots
+waterbox/tests/work/
