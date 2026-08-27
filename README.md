@@ -49,8 +49,21 @@ It runs in tiers, because a PS2 needs a bios to do anything at all:
 Checks whose content is missing report SKIP and say what they would have
 proven, so a green run never quietly means nothing was tested.
 
-The port's history, the ten patches and what remains are in
+## The package
+
+```sh
+./waterbox/build-package.sh -r <chimera checkout>   # -> build/Cores/pcsx2.chimeraCore
+./waterbox/tests/run-frontend.sh                    # the package inside Chimera
+```
+
+The frontend gate loads the package in Chimera itself (headless, under Mono)
+and requires the machine it builds to be the machine the core gate signed off
+on, that a setting arrives through the frontend, and that the package's
+bindings become the frontend's defaults.
+
+The port's history, the twelve patches and what remains are in
 [`docs/PLAN.md`](docs/PLAN.md).
 
-Status: **M1 to M5.** A commercial game boots, draws, takes input and saves,
-and the sandbox is byte-identical to the native reference throughout.
+Status: **M1 to M6.** A commercial game boots, draws, takes input and saves,
+the sandbox is byte-identical to the native reference throughout, and the
+package runs inside Chimera.
