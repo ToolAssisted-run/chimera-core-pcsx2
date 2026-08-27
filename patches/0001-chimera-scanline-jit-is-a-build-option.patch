@@ -1,0 +1,18 @@
+diff --git a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+index f18adbd..776c244 100644
+--- a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
++++ b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+@@ -11,7 +11,13 @@
+ #include <fstream>
+ 
+ // Comment to disable all dynamic code generation.
++//
++// chimera: or define CHIMERA_NO_JIT_RASTERIZER, because a sandboxed build
++// cannot host a code generator and editing a comment is not a build option.
++// The C++ path (CDrawScanline) draws the same pixels, more slowly.
++#ifndef CHIMERA_NO_JIT_RASTERIZER
+ #define ENABLE_JIT_RASTERIZER
++#endif
+ 
+ #if MULTI_ISA_COMPILE_ONCE
+ // Lack of a better home
