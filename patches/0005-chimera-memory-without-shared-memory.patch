@@ -1,0 +1,98 @@
+diff --git a/pcsx2/Memory.cpp b/pcsx2/Memory.cpp
+index 758ddbc..9bf3cec 100644
+--- a/pcsx2/Memory.cpp
++++ b/pcsx2/Memory.cpp
+@@ -85,6 +85,69 @@ namespace HostMemoryMap
+ 	}
+ } // namespace HostMemoryMap
+ 
++#ifdef CHIMERA_NO_SHARED_MEMORY
++#include <sys/mman.h>
++
++// chimera: the PS2's memory, as one plain block.
++//
++// Upstream allocates it as SHARED memory and then maps it into a reserved
++// area, so the same physical pages can appear at more than one address - which
++// is what fastmem needs, and only fastmem. A sandboxed build has no shared
++// memory (no shm_open, no second mapping of anything) and no fastmem: the
++// interpreters reach memory through the vtlb's page table, where a mirror is
++// two entries pointing at one page.
++//
++// So the two regions are simply allocated. The code region is still reserved,
++// because the recompilers are compiled and size their caches from it, but
++// nothing in this build writes a byte of it.
++bool SysMemory::AllocateMemoryMap()
++{
++	s_data_memory = static_cast<u8*>(mmap(nullptr, HostMemoryMap::MainSize,
++		PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
++	if (s_data_memory == MAP_FAILED)
++		s_data_memory = nullptr;
++
++	// The code region is mapped EXECUTABLE. Nothing recompiles the EE, the IOP
++	// or the vector units in this build, but the VIF unpack path generates its
++	// SSE routines here whichever cpu implementation is selected - and a
++	// sandbox that can hold executable memory is a sandbox the recompilers
++	// could one day run in, which is this port's open question about speed.
++	s_code_memory = static_cast<u8*>(mmap(nullptr, HostMemoryMap::CodeSize,
++		PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
++	if (s_code_memory == MAP_FAILED)
++		s_code_memory = nullptr;
++
++	if (!s_data_memory || !s_code_memory)
++	{
++		Console.ErrorFmt("chimera: {} of machine memory: {}, {} of code region: {}",
++			HostMemoryMap::MainSize, s_data_memory ? "ok" : "FAILED",
++			HostMemoryMap::CodeSize, s_code_memory ? "ok" : "FAILED");
++		Host::ReportErrorAsync("Error", "Failed to allocate VM memory.");
++		ReleaseMemoryMap();
++		return false;
++	}
++
++	std::memset(s_data_memory, 0, HostMemoryMap::MainSize);
++
++	HostMemoryMap::EEmem = (uptr)(s_data_memory + HostMemoryMap::EEmemOffset);
++	HostMemoryMap::IOPmem = (uptr)(s_data_memory + HostMemoryMap::IOPmemOffset);
++	HostMemoryMap::VUmem = (uptr)(s_data_memory + HostMemoryMap::VUmemOffset);
++
++	DumpMemoryMap();
++	return true;
++}
++
++void SysMemory::ReleaseMemoryMap()
++{
++	if (s_code_memory)
++		munmap(s_code_memory, HostMemoryMap::CodeSize);
++	s_code_memory = nullptr;
++
++	if (s_data_memory)
++		munmap(s_data_memory, HostMemoryMap::MainSize);
++	s_data_memory = nullptr;
++}
++#else
+ bool SysMemory::AllocateMemoryMap()
+ {
+ 	s_data_memory_file_handle = HostSys::CreateSharedMemory(HostSys::GetFileMappingName("pcsx2").c_str(), HostMemoryMap::MainSize);
+@@ -123,6 +186,7 @@ bool SysMemory::AllocateMemoryMap()
+ 	DumpMemoryMap();
+ 	return true;
+ }
++#endif
+ 
+ void SysMemory::DumpMemoryMap()
+ {
+@@ -149,6 +213,7 @@ void SysMemory::DumpMemoryMap()
+ #undef DUMP_REGION
+ }
+ 
++#ifndef CHIMERA_NO_SHARED_MEMORY
+ void SysMemory::ReleaseMemoryMap()
+ {
+ 	if (s_code_memory)
+@@ -171,6 +236,7 @@ void SysMemory::ReleaseMemoryMap()
+ 		s_data_memory_file_handle = nullptr;
+ 	}
+ }
++#endif
+ 
+ bool SysMemory::Allocate()
+ {

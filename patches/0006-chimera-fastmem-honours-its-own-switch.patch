@@ -1,0 +1,61 @@
+diff --git a/pcsx2/vtlb.cpp b/pcsx2/vtlb.cpp
+index 51af0b4..d1ba81e 100644
+--- a/pcsx2/vtlb.cpp
++++ b/pcsx2/vtlb.cpp
+@@ -1331,24 +1331,41 @@ bool vtlb_Core_Alloc()
+ 
+ 	vtlbdata.vmap = reinterpret_cast<VTLBVirtual*>(SysMemory::GetVTLBVirtualMap());
+ 
+-	pxAssert(!s_fastmem_area);
+-	s_fastmem_area = SharedMemoryMappingArea::Create(FASTMEM_AREA_SIZE);
+-	if (!s_fastmem_area)
+-	{
+-		Host::ReportErrorAsync("Error", "Failed to allocate fastmem area");
+-		return false;
+-	}
+-
++	// chimera: fastmem is a FOUR GIGABYTE reservation of the host's address
++	// space, so a recompiler can reach PS2 memory with one instruction instead
++	// of a table lookup. It exists for the recompilers and for nothing else -
++	// the interpreters go through vtlbdata.vmap either way - and a sandboxed
++	// guest cannot reserve four gigabytes of anything.
++	//
++	// PCSX2 already has the switch for this; upstream simply does not consult
++	// it here. Honouring it costs a build that turns fastmem off nothing, and
++	// buys a build that cannot have it the ability to run at all. The page
++	// fault handler goes with it: it exists to catch writes to the fastmem
++	// area, and there is no fastmem area.
++	// The table stays either way: it is 4MB, and the code that maintains it
++	// indexes before it checks whether there is an area to map into.
+ 	s_fastmem_virtual_mapping.resize(FASTMEM_PAGE_COUNT, NO_FASTMEM_MAPPING);
+-	vtlbdata.fastmem_base = (uptr)s_fastmem_area->BasePointer();
+-	DevCon.WriteLn(Color_StrongGreen, "Fastmem area: %p - %p",
+-		vtlbdata.fastmem_base, vtlbdata.fastmem_base + (FASTMEM_AREA_SIZE - 1));
+ 
+-	Error error;
+-	if (!PageFaultHandler::Install(&error))
++	if (EmuConfig.Cpu.Recompiler.EnableFastmem)
+ 	{
+-		Host::ReportErrorAsync("Failed to install page fault handler.", error.GetDescription());
+-		return false;
++		pxAssert(!s_fastmem_area);
++		s_fastmem_area = SharedMemoryMappingArea::Create(FASTMEM_AREA_SIZE);
++		if (!s_fastmem_area)
++		{
++			Host::ReportErrorAsync("Error", "Failed to allocate fastmem area");
++			return false;
++		}
++
++		vtlbdata.fastmem_base = (uptr)s_fastmem_area->BasePointer();
++		DevCon.WriteLn(Color_StrongGreen, "Fastmem area: %p - %p",
++			vtlbdata.fastmem_base, vtlbdata.fastmem_base + (FASTMEM_AREA_SIZE - 1));
++
++		Error error;
++		if (!PageFaultHandler::Install(&error))
++		{
++			Host::ReportErrorAsync("Failed to install page fault handler.", error.GetDescription());
++			return false;
++		}
+ 	}
+ 
+ 	return true;

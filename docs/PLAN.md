@@ -136,17 +136,53 @@ than a precondition.
     `Log::SetConsoleOutputLevel` directly works right up until the next
     settings load turns it back off, which is where the silence came from.
 
+## The sandbox
+
+**2026-08-27, the same day: the PS2 runs inside the waterbox, and it is the
+same machine as the native one.** 600 frames of the bios, byte for byte, on
+every channel - the picture, the audio, EE RAM, IOP RAM, the scratchpad and
+both vector units - and the whole guest survives a save/load round-trip on
+every single frame. The sandbox costs about 12 percent: 300 frames in 18.5
+seconds against 16.4 native.
+
+What it took, in the order the sandbox found them:
+
+- **No shared memory** (patch 0005). PCSX2 allocates the PS2's memory as shared
+  memory so it can be mapped twice, which is what fastmem needs and nothing
+  else does here. Both regions are now plain mappings - and the CODE region is
+  mapped EXECUTABLE, which is worth knowing: miniBox can host executable
+  memory, so the recompilers are not architecturally excluded.
+- **Fastmem honours its own switch** (patch 0006). The 4GB reservation was
+  unconditional; PCSX2 already had the setting, upstream just never consulted
+  it here.
+- **The GS's video memory** (in patch 0002) is mapped four times in a row so
+  that address arithmetic wraps. Four real copies instead - the difference is
+  visible only to a program that reads past the end of video memory.
+- **A flat, read-only file system** (patch 0007). A sandbox has one directory
+  and no writes. The second half of that is what fixed the ONLY divergence
+  this port has had: the native reference was creating memory card files in
+  the work directory and the sandboxed build could not, so the two machines
+  saw different hardware and split at frame 60 - the exact frame the bios first
+  polls a memory card. Refusing writes in both flavors made them the same
+  machine again. (Memory cards therefore have no home yet; that is M5.)
+- **The VIF unpack recompiler** (patch 0008) generates code whichever cpu
+  implementation is selected. It has an interpreted twin, now reachable.
+- **A clock the machine owns.** The first sandbox clock advanced one tick per
+  READ, which is not deterministic at all: a build that reads it more often
+  sees a different time. It now advances one frame's worth of microseconds per
+  frame, and reading it does nothing.
+- **Three syscalls** the sandbox does not have: mkdir, prctl, and the two glibc
+  extensions musl lacks (gettid and two sysconf queries).
+
 ## What is known to be wrong, and is next
 
-- **The machine reads the host clock.** The bios stamps the PS2's date and time
-  from the computer it is running on ("Resulting System Time: 2026-08-27"),
-  which is exactly the class of bug Flycast had: two runs of the same movie
-  start from two different machines. It must come from the project, as a pinned
-  setting, before any gate can mean anything.
-- **The equivalence gate does not exist yet.** The native reference runs; the
-  guest build has not been attempted since the ABI was written.
-- **Save data and the disc formats** (M5) are unwired: memory cards live and
-  die with the machine, and only ISO is reachable until CHD is tested.
+- **The equivalence gate is not written yet**, though everything it needs now
+  exists and passes by hand: 600 frames, both flavors, plus the state
+  round-trip.
+- **Memory cards have no home.** They are switched off, because a card is a
+  file and this core writes no files. The save-data channel is M5.
+- **Discs are untested.** Only the bios has ever been booted; ISO, CHD and CSO
+  all compile and none has been read.
 - **Lag detection reports every frame as a lag frame**, because nothing calls
   `chimera_input_was_read` yet - the hook belongs where the pad answers the
   SIO's poll.

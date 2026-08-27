@@ -1,0 +1,18 @@
+diff --git a/pcsx2/Vif_Dynarec.h b/pcsx2/Vif_Dynarec.h
+index 173bb89..69067cb 100644
+--- a/pcsx2/Vif_Dynarec.h
++++ b/pcsx2/Vif_Dynarec.h
+@@ -43,4 +43,13 @@ alignas(16) extern nVifStruct nVif[2];
+ alignas(16) extern nVifCall nVifUpk[(2 * 2 * 16) * 4]; // ([USN][Masking][Unpack Type]) [curCycle]
+ alignas(16) extern u32      nVifMask[3][4][4];         // [MaskNumber][CycleNumber][Vector]
+ 
++// chimera: the VIF unpack recompiler is the one piece of PCSX2 that generates
++// and RUNS code no matter which cpu implementation is selected - turning the EE
++// and the vector units into interpreters leaves it recompiling. A sandbox has
++// no executable memory to jump into (the first sandboxed run faulted trying),
++// and the interpreted path next to it does the same work.
++#ifdef CHIMERA_NO_RECOMPILERS
++static constexpr bool newVifDynaRec = 0; // Use code in Vif_Unpack.cpp
++#else
+ static constexpr bool newVifDynaRec = 1; // Use code in Vif_Dynarec.inl
++#endif

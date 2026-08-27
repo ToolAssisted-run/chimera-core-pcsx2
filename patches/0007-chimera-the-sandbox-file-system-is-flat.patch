@@ -1,0 +1,210 @@
+diff --git a/common/FileSystem.cpp b/common/FileSystem.cpp
+index 24eddeb..3d4c18f 100644
+--- a/common/FileSystem.cpp
++++ b/common/FileSystem.cpp
+@@ -845,6 +845,53 @@ std::string Path::BuildRelativePath(const std::string_view filename, const std::
+ 	return new_string;
+ }
+ 
++#ifdef CHIMERA_FLAT_FILESYSTEM
++// chimera: in a sandbox the file system is FLAT.
++//
++// A waterbox guest sees exactly the files the frontend mounted, each under its
++// own name, and there are no directories at all - so a path is its last
++// component and nothing else. PCSX2 builds paths the way a desktop does
++// (a data root, a folder per kind of file, then the name), which produces
++// "./bios.bin" for a file mounted as "bios.bin", and the open fails.
++//
++// Rather than teach every caller, the reduction happens here, at the places
++// where a path stops being a string and becomes a file. It is the same
++// statement the rest of this core makes about the sandbox: there is one
++// directory, everything is in it, and its name never appears.
++// ...and READ ONLY. A sandbox mounts the files a project supplies and nothing
++// else: there is no disk to write to, and a core that could leave something
++// behind is a core whose next run starts from a different machine. PCSX2 would
++// otherwise create memory cards, a bios .mec file and a log where it was
++// started from - which is how this was found: the native reference wrote its
++// memory cards and the sandboxed build could not, so the two machines saw
++// different hardware and diverged at the exact frame the bios first polled the
++// card.
++//
++// What the machine must persist (memory cards) leaves through Chimera's
++// save-data channel instead.
++static bool ChimeraIsWriteMode(const char* mode)
++{
++	for (const char* c = mode; c && *c; c++)
++	{
++		if (*c == 'w' || *c == 'a' || *c == '+')
++			return true;
++	}
++	return false;
++}
++
++static const char* ChimeraFlatName(const char* path)
++{
++	if (!path)
++		return path;
++
++	const char* last = std::strrchr(path, '/');
++	return last ? (last + 1) : path;
++}
++#define CHIMERA_FLATTEN(name) name = ChimeraFlatName(name)
++#else
++#define CHIMERA_FLATTEN(name) ((void)0)
++#endif
++
+ std::string Path::Combine(const std::string_view base, const std::string_view next)
+ {
+ 	std::string ret;
+@@ -973,6 +1020,14 @@ std::string Path::CreateFileURL(std::string_view path)
+ 
+ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error* error)
+ {
++	CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++	if (ChimeraIsWriteMode(mode))
++	{
++		Error::SetErrno(error, EROFS);
++		return nullptr;
++	}
++#endif
+ #ifdef _WIN32
+ 	const std::wstring wfilename = GetWin32Path(filename);
+ 	const std::wstring wmode = StringUtil::UTF8StringToWideString(mode);
+@@ -1008,6 +1063,14 @@ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error*
+ 
+ std::FILE* FileSystem::OpenCFileTryIgnoreCase(const char* filename, const char* mode, Error* error)
+ {
++	CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++	if (ChimeraIsWriteMode(mode))
++	{
++		Error::SetErrno(error, EROFS);
++		return nullptr;
++	}
++#endif
+ #if defined(_WIN32) || defined(__APPLE__)
+ 	return OpenCFile(filename, mode, error);
+ #else
+@@ -1039,6 +1102,14 @@ std::FILE* FileSystem::OpenCFileTryIgnoreCase(const char* filename, const char*
+ 
+ int FileSystem::OpenFDFile(const char* filename, int flags, int mode, Error* error)
+ {
++	CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++	if (flags & (O_WRONLY | O_RDWR | O_CREAT))
++	{
++		Error::SetErrno(error, EROFS);
++		return -1;
++	}
++#endif
+ #ifdef _WIN32
+ 	const std::wstring wfilename = GetWin32Path(filename);
+ 	if (!wfilename.empty())
+@@ -1065,6 +1136,14 @@ FileSystem::ManagedCFilePtr FileSystem::OpenManagedCFileTryIgnoreCase(const char
+ 
+ std::FILE* FileSystem::OpenSharedCFile(const char* filename, const char* mode, FileShareMode share_mode, Error* error)
+ {
++	CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++	if (ChimeraIsWriteMode(mode))
++	{
++		Error::SetErrno(error, EROFS);
++		return nullptr;
++	}
++#endif
+ #ifdef _WIN32
+ 	const std::wstring wfilename = GetWin32Path(filename);
+ 	const std::wstring wmode = StringUtil::UTF8StringToWideString(mode);
+@@ -1144,6 +1223,7 @@ s64 FileSystem::FSize64(std::FILE* fp)
+ 
+ s64 FileSystem::GetPathFileSize(const char* Path)
+ {
++	CHIMERA_FLATTEN(Path);
+ 	FILESYSTEM_STAT_DATA sd;
+ 	if (!StatFile(Path, &sd))
+ 		return -1;
+@@ -1153,6 +1233,7 @@ s64 FileSystem::GetPathFileSize(const char* Path)
+ 
+ std::optional<std::time_t> FileSystem::GetFileTimestamp(const char* path)
+ {
++	CHIMERA_FLATTEN(path);
+ 	FILESYSTEM_STAT_DATA sd;
+ 	if (!StatFile(path, &sd))
+ 		return std::nullopt;
+@@ -1332,6 +1413,11 @@ void FileSystem::UnmapFile(std::span<const u8> file)
+ 
+ bool FileSystem::EnsureDirectoryExists(const char* path, bool recursive, Error* error)
+ {
++	CHIMERA_FLATTEN(path);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++	// there is one directory, everything is in it, and it is already there
++	return true;
++#endif
+ 	if (FileSystem::DirectoryExists(path))
+ 		return true;
+ 
+@@ -1626,6 +1712,7 @@ static void TranslateStat64(struct stat* st, const struct _stat64& st64)
+ 
+ bool FileSystem::StatFile(const char* path, struct stat* st)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -1659,6 +1746,7 @@ bool FileSystem::StatFile(std::FILE* fp, struct stat* st)
+ 
+ bool FileSystem::StatFile(const char* path, FILESYSTEM_STAT_DATA* sd)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -1737,6 +1825,7 @@ bool FileSystem::StatFile(std::FILE* fp, FILESYSTEM_STAT_DATA* sd)
+ 
+ bool FileSystem::FileExists(const char* path)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -1759,6 +1848,7 @@ bool FileSystem::FileExists(const char* path)
+ 
+ bool FileSystem::DirectoryExists(const char* path)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -2297,6 +2387,7 @@ bool FileSystem::FindFiles(const char* path, const char* pattern, u32 flags, Fin
+ 
+ bool FileSystem::StatFile(const char* path, struct stat* st)
+ {
++	CHIMERA_FLATTEN(path);
+ 	return stat(path, st) == 0;
+ }
+ 
+@@ -2311,6 +2402,7 @@ bool FileSystem::StatFile(std::FILE* fp, struct stat* st)
+ 
+ bool FileSystem::StatFile(const char* path, FILESYSTEM_STAT_DATA* sd)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -2367,6 +2459,7 @@ bool FileSystem::StatFile(std::FILE* fp, FILESYSTEM_STAT_DATA* sd)
+ 
+ bool FileSystem::FileExists(const char* path)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;
+@@ -2384,6 +2477,7 @@ bool FileSystem::FileExists(const char* path)
+ 
+ bool FileSystem::DirectoryExists(const char* path)
+ {
++	CHIMERA_FLATTEN(path);
+ 	// has a path
+ 	if (path[0] == '\0')
+ 		return false;

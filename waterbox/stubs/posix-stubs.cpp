@@ -1,4 +1,5 @@
-/* The few POSIX calls Flycast makes that a sandbox has no syscall for.
+/* The few POSIX calls PCSX2 makes that a sandbox has no syscall for, and the
+ * two glibc extensions musl does not carry.
  *
  * A waterbox guest talks to the host through a small, deliberate surface: the
  * files the frontend mounted, and nothing else. There is no kernel behind it,
@@ -11,6 +12,8 @@
  */
 #include <cstdio>
 #include <cerrno>
+#include <cstring>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern "C" int access(const char *path, int mode)
@@ -33,3 +36,40 @@ extern "C" int access(const char *path, int mode)
 	fclose(f);
 	return 0;
 }
+
+/* The kernel's thread id. There is one thread, it never changes, and nothing
+ * in the machine depends on the number - PCSX2 uses it to name threads in a
+ * profiler. glibc exposes it; musl does not.
+ */
+extern "C" int chimera_gettid(void) { return 1; }
+
+/* Making a directory.
+ *
+ * PCSX2 keeps its own house on a desktop: a folder for memory cards, one for
+ * savestates, one for snapshots, and it creates them if they are missing. The
+ * sandbox has no such house - everything the machine is made of arrives
+ * mounted at the root, and everything it produces leaves through the ABI - so
+ * there is nothing to create and nowhere to create it.
+ *
+ * The root itself is reported as already there, which is true; anything else
+ * is refused as read-only, which is also true. Both are answers PCSX2 already
+ * handles, because both are what it would get from a read-only medium.
+ */
+extern "C" int mkdir(const char *path, mode_t mode)
+{
+	if (path && (!strcmp(path, ".") || !strcmp(path, "./") || !strcmp(path, "/")))
+	{
+		errno = EEXIST;
+		return -1;
+	}
+
+	errno = EROFS;
+	return -1;
+}
+
+/* Naming a thread.
+ *
+ * PCSX2 labels its threads so a profiler can tell them apart. There is one
+ * thread here and no profiler, and the sandbox has no kernel to hold the name.
+ */
+extern "C" int prctl(int option, ...) { return 0; }

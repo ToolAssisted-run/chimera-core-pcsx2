@@ -1,5 +1,5 @@
 diff --git a/pcsx2/GS/GS.cpp b/pcsx2/GS/GS.cpp
-index 8291c3b..a179a8e 100644
+index 8291c3b..5618537 100644
 --- a/pcsx2/GS/GS.cpp
 +++ b/pcsx2/GS/GS.cpp
 @@ -18,7 +18,14 @@
@@ -72,3 +72,45 @@ index 8291c3b..a179a8e 100644
  	else
  	{
  		g_gs_renderer = std::unique_ptr<GSRenderer>(MULTI_ISA_SELECT(makeGSRendererSW)(GSConfig.SWExtraThreads));
+@@ -997,6 +1020,33 @@ void GSFreeWrappedMemory(void* ptr, size_t size, size_t repeat)
+ 
+ static int s_shm_fd = -1;
+ 
++#ifdef CHIMERA_NO_SHARED_MEMORY
++// chimera: the GS's four megabytes, allocated plainly.
++//
++// Upstream maps the same shared pages FOUR TIMES in a row, so that address
++// arithmetic which runs off the end of video memory lands back at the start
++// instead of faulting. A sandbox has no shared memory and cannot map anything
++// twice, so the four copies are four real megabytes each.
++//
++// The difference is visible only to a program that reads or writes PAST the
++// end of the GS's memory: upstream wraps, this reads the copy. Nothing does
++// that on purpose - it is a safety net for swizzle arithmetic - and a movie
++// that depended on it would be depending on an aliasing trick rather than on
++// the console. If a game is ever found that needs it, the answer is to make
++// the copies aliases in the sandbox, not to reserve address space here.
++void* GSAllocateWrappedMemory(size_t size, size_t repeat)
++{
++	void* mem = std::aligned_alloc(__pagesize, size * repeat);
++	if (mem)
++		std::memset(mem, 0, size * repeat);
++	return mem;
++}
++
++void GSFreeWrappedMemory(void* ptr, size_t size, size_t repeat)
++{
++	std::free(ptr);
++}
++#else
+ void* GSAllocateWrappedMemory(size_t size, size_t repeat)
+ {
+ 	pxAssert(s_shm_fd == -1);
+@@ -1041,6 +1091,7 @@ void GSFreeWrappedMemory(void* ptr, size_t size, size_t repeat)
+ 	close(s_shm_fd);
+ 	s_shm_fd = -1;
+ }
++#endif
+ 
+ #endif
+ 

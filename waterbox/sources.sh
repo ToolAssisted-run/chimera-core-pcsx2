@@ -115,7 +115,7 @@ deps_srcs() {
 	find "$p/3rdparty/freesurround/src" -name '*.cpp'
 	find "$p/3rdparty/soundtouch/source/SoundTouch" -name '*.cpp' 2>/dev/null || true
 	# the demangler ccc uses for C++ symbol names
-	find "$p/3rdparty/demangler" -name '*.c' 2>/dev/null || true
+	find "$p/3rdparty/demangler" -name '*.c' | grep -v -e "testsuite"
 	# ccc: PCSX2 reads an ELF's debug symbols with it, and the EE, the IOP bios
 	# and the elf loader all reference it.
 	find "$p/3rdparty/ccc/src/ccc" -name '*.cpp' 2>/dev/null || true

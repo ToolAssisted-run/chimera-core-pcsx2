@@ -9,11 +9,17 @@
  * platform layer is not compiled (waterbox/sources.sh) and the answers are
  * pinned here.
  *
- * The clock is the important one. It does not track real time and it is not
- * meant to: it advances by a fixed step every time it is read, which is enough
- * for the "how long did that take" logging PCSX2 does with it, and is the same
- * sequence on every machine. Nothing in the emulated machine's timing comes
- * from here - the EE and the IOP are counted in cycles.
+ * The clock is the important one, and the first version of it was wrong in a
+ * way worth recording: it advanced one tick per READ, which sounds
+ * deterministic and is not. Two builds that read it a different number of
+ * times - because one logged more, say - see two different clocks, and the
+ * machine diverged after about forty frames while every other channel still
+ * matched.
+ *
+ * So the clock belongs to the MACHINE: it advances one frame's worth of
+ * microseconds every time the frontend asks for a frame, and not otherwise.
+ * Reading it has no effect on it. Two runs that produce the same frames see
+ * the same clock, whatever either build did in between.
  *
  * The CPU description is pinned for the same reason. cpuinfo IS vendored in
  * the PCSX2 tree and would build, but what it reports is whatever CPUID says
@@ -36,6 +42,14 @@
  */
 static u64 s_ticks = 0;
 
+/* Called by cinterface.cpp at the top of every frame. One NTSC frame is
+ * 16683 microseconds; the exact figure does not matter, only that it is the
+ * same figure on both sides of the gate and that it never moves on its own. */
+extern "C" void ChimeraAdvanceClock(void)
+{
+	s_ticks += 16683;
+}
+
 u64 GetTickFrequency()
 {
 	return 1000000;
@@ -43,7 +57,7 @@ u64 GetTickFrequency()
 
 u64 GetCPUTicks()
 {
-	return ++s_ticks;
+	return s_ticks;
 }
 
 std::string GetOSVersionString()

@@ -146,7 +146,14 @@ int main(int argc, char **argv)
 	 * guest's heap. Sizing this like an 8-bit core is how the first sandboxed
 	 * run died: an allocation quietly failed and the machine wrote through a
 	 * null base. */
-	mb_memory_layout_template layout = { 256u << 20, 16u << 20, 64u << 20, 16u << 20, 256u << 20 };
+	/* A PlayStation 2 needs more room than any core here so far, and most of it
+	 * is the console's memory: 285MB is the machine (32MB of EE RAM, the bios
+	 * and rom areas, the IOP, the vector units, and the vtlb's two page tables
+	 * over a 4GB address space), and 305MB is the recompiler cache region,
+	 * which this build reserves and never writes. The sandbox charges for pages
+	 * that are TOUCHED, so most of that is address space rather than memory -
+	 * but the arena has to be big enough to hold it. */
+	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 64u << 20, 16u << 20, 1024u << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);

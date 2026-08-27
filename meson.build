@@ -42,10 +42,12 @@ defs = [
   # The software renderer generates its scanline routines at runtime through
   # xbyak. A sandbox would rather not host a code generator, and does not have
   # to: GSDrawScanline::CDrawScanline is the C++ path this build takes.
-  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD',
+  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM',
   # zstd ships hand-written amd64 assembly for one decode loop. The C path is
   # the same bytes out and one source language fewer in a cross-built guest.
   '-DZSTD_DISABLE_ASM',
+  # What both flavors agree on, whichever C library is underneath.
+  '-include', 'chimera-shim.h',
   '-Wno-deprecated-declarations',
   '-Wno-unused-variable',
   # PCSX2 refuses to compile below SSE 4.1, and the emulation itself uses those
@@ -61,6 +63,21 @@ defs = [
   '-DHAVE_STRING_H=1',
 
 ]
+# musl carries neither of these glibc extensions, and glibc has both - so this
+# is the one place the two flavors are compiled differently, and it is about
+# the C LIBRARY rather than about the machine. gettid becomes the sandbox's own
+# answer (one thread, id 1); the two sysconf queries become -1, which is "do
+# not know", and PCSX2 already handles that by reading /sys, finding nothing,
+# and reporting a cache line size of zero - the same answer glibc's sysconf
+# gives inside the sandbox, where there is no /sys either.
+if meson.is_cross_build()
+  defs += [
+    '-Dgettid=chimera_gettid',
+    '-D_SC_LEVEL1_DCACHE_LINESIZE=-1',
+    '-D_SC_LEVEL1_ICACHE_LINESIZE=-1',
+  ]
+endif
+
 add_project_arguments(defs, language: ['c', 'cpp'])
 
 inc = include_directories(
@@ -112,8 +129,6 @@ driver_sources = files(
   'waterbox/stubs/refused.cpp',
   'waterbox/stubs/host-stubs.cpp',
   'waterbox/stubs/posix-stubs.cpp',
-  # the software renderer: skmp's reference rasteriser (BSD-3), and the walker
-  # that feeds it from PCSX2's parsed lists
 )
 
 if meson.is_cross_build()
@@ -150,7 +165,9 @@ else
     dependencies: [threads, dl, m])
 
   mbhost = mb / 'build/meson-cpp/source/host'
+  # The sandbox runner is not part of the machine: it drives core.wbx from
+  # outside, so it wants neither the machine's includes nor its shim.
   executable('run-wbx', files('waterbox/run-wbx.c'),
-    c_args: ['-I' + mb / 'source/host'],
+    c_args: ['-I' + mb / 'source/host', '-I' + meson.current_source_dir() / 'waterbox/generated'],
     link_args: [mbhost / 'libminiboxhost.so', '-Wl,-rpath,' + mbhost])
 endif

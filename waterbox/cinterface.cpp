@@ -53,6 +53,7 @@
 #include "VUmicro.h"
 #include "common/Console.h"
 #include "common/Error.h"
+#include "fmt/format.h"
 #include "common/SettingsInterface.h"
 
 /* ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ static int16_t g_axes[AXIS_COUNT];
 /* the settings layer host.cpp installs, and the two things the sandbox's own
  * device and audio stream hand back */
 SettingsInterface* ChimeraGetSettings();
+extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height);
 
@@ -232,6 +234,42 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore", "EnablePatches", false);
 	si.SetBoolValue("EmuCore", "SaveStateOnShutdown", false);
 
+	/* No memory cards, yet.
+	 *
+	 * A card is a file PCSX2 reads and writes, and a core writes nothing (the
+	 * file system patch says why). Until the cards travel through Chimera's
+	 * save-data channel - M5 - the machine has empty slots, which is a machine
+	 * a movie can at least be recorded on, rather than one whose saves depend
+	 * on what was lying next to the frontend.
+	 */
+	si.SetBoolValue("MemoryCards", "Slot1_Enable", false);
+	si.SetBoolValue("MemoryCards", "Slot2_Enable", false);
+	for (int port = 1; port <= 2; port++)
+	{
+		for (int slot = 2; slot <= 4; slot++)
+			si.SetBoolValue("MemoryCards", fmt::format("Multitap{}_Slot{}_Enable", port, slot).c_str(), false);
+	}
+
+	/* The machine's clock.
+	 *
+	 * A PS2 has a battery-backed clock, and PCSX2 reads the computer's: the
+	 * date goes into the machine at boot, where the bios and games read it,
+	 * and some games seed their random numbers from it. Two runs of the same
+	 * movie would then start from two different machines - the same bug this
+	 * project already found in Flycast, and PCSX2 already has the switch for
+	 * it, because its own recorder needed the same thing.
+	 *
+	 * So the clock comes from the project. The default is the date PCSX2's
+	 * recorder uses (2020-03-04), which is late enough that every PS2 game
+	 * accepts it as a plausible today. */
+	si.SetBoolValue("EmuCore", "ManuallySetRealTimeClock", true);
+	si.SetIntValue("EmuCore", "RtcYear", static_cast<int>(wbx_setting_long("rtc_year", 20)));
+	si.SetIntValue("EmuCore", "RtcMonth", static_cast<int>(wbx_setting_long("rtc_month", 3)));
+	si.SetIntValue("EmuCore", "RtcDay", static_cast<int>(wbx_setting_long("rtc_day", 4)));
+	si.SetIntValue("EmuCore", "RtcHour", static_cast<int>(wbx_setting_long("rtc_hour", 0)));
+	si.SetIntValue("EmuCore", "RtcMinute", static_cast<int>(wbx_setting_long("rtc_minute", 0)));
+	si.SetIntValue("EmuCore", "RtcSecond", static_cast<int>(wbx_setting_long("rtc_second", 0)));
+
 	/* Fast boot skips the bios splash. It is a machine difference, so the
 	 * project says which, and the default is the honest one: the machine
 	 * starts where a console starts. */
@@ -286,6 +324,16 @@ ECL_EXPORT int Init(void)
 	VMManager::SetDefaultSettings(*si, true, true, true, true, true);
 	ApplySettings(*si, verbose);
 	VMManager::Internal::LoadStartupSettings();
+
+	/* The machine's memory is allocated inside CPUThreadInitialize, before any
+	 * settings have reached EmuConfig - so the two decisions that change what
+	 * gets allocated have to be made here, by hand, or the sandbox is asked for
+	 * four gigabytes of fastmem it does not have. */
+	EmuConfig.Cpu.Recompiler.EnableFastmem = false;
+	EmuConfig.Cpu.Recompiler.EnableEE = false;
+	EmuConfig.Cpu.Recompiler.EnableIOP = false;
+	EmuConfig.Cpu.Recompiler.EnableVU0 = false;
+	EmuConfig.Cpu.Recompiler.EnableVU1 = false;
 
 	if (!VMManager::Internal::CPUThreadInitialize())
 	{
@@ -349,6 +397,7 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 		return;
 
 	ApplyInput();
+	ChimeraAdvanceClock();
 
 	/* One frame: arm PCSX2's own frame advance, run, and return when the next
 	 * vsync boundary pauses the machine. */
