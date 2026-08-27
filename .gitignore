@@ -1,11 +1,16 @@
 # Meson build trees: the guest cross file and both build dirs are machine-local
 build/
 
-# Copyrighted content never enters this repository. A PS2 needs a bios to boot
-# ANYTHING - there is no HLE bios - so both of these are required for testing
-# and neither can be committed:
-#   tests/roms-local/       discs and homebrew
-#   tests/firmware-local/   ps2 bios images
+# CONTENT NEVER ENTERS THIS REPOSITORY.
+#
+# A PS2 has no HLE bios, so this core cannot run a single instruction without a
+# dump, and the only disc images that exist are somebody's. Everything under
+# tests/roms is therefore ignored WHOLESALE rather than by pattern: a rule that
+# lists what may not be committed is a rule that eventually misses one.
+#
+# Anything this repository may legally ship (a program it assembles itself, the
+# way the Flycast core does) goes in tests/own/ instead, which is tracked.
+tests/roms/
 tests/roms-local/
 tests/firmware-local/
 
