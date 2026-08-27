@@ -1,0 +1,91 @@
+name: chimera waterbox core
+
+# The core as Chimera ships it: a sandboxed core.wbx package.
+#
+# What this job can prove on a public runner is bounded by content. A
+# PlayStation 2 has no HLE bios, so nothing here executes an instruction: what
+# CI proves is that both flavors BUILD from a clean checkout, that the sandbox
+# loads and starts the guest, and that a machine with no bios refuses clearly
+# in both of them. Everything else the gate can check - equivalence, the
+# savestate round-trip, input, the picture, save data, a disc - needs a dump,
+# reports SKIP here, and is run by hand against the developer's own content
+# (waterbox/run-gate.sh says so on every line).
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHIMERA_REF: main
+
+jobs:
+
+  core-gate:
+    name: core gate (builds, starts, refuses without a bios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Check out Chimera (for the miniBox waterbox host and toolchain)
+        uses: actions/checkout@v6
+        with:
+          repository: ToolAssisted-run/chimera
+          ref: ${{ env.CHIMERA_REF }}
+          path: chimera-checkout
+          submodules: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build build-essential python3
+
+      - name: Check out miniBox
+        working-directory: chimera-checkout
+        run: git submodule update --init extern/tools/chimera-common-minibox
+
+      - name: Cache the guest toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            chimera-checkout/extern/tools/chimera-common-minibox/build/meson-linux
+            chimera-checkout/extern/tools/chimera-common-minibox/build/meson-cpp
+          key: guest-cpp-${{ runner.os }}-${{ hashFiles('chimera-checkout/extern/tools/chimera-common-minibox/.git') }}-${{ hashFiles('chimera-checkout/extern/tools/chimera-common-minibox/meson.build') }}
+
+      - name: Build miniBox (host + C++ guest toolchain)
+        run: |
+          mb="$PWD/chimera-checkout/extern/tools/chimera-common-minibox"
+          [ -f "$mb/build/meson-linux/build.ninja" ] || meson setup "$mb/build/meson-linux" "$mb"
+          meson compile -C "$mb/build/meson-linux"
+          [ -f "$mb/build/meson-cpp/build.ninja" ] || meson setup "$mb/build/meson-cpp" "$mb" -Dguest_cpp=true
+          meson compile -C "$mb/build/meson-cpp"
+
+      - name: Build the native reference and sandbox drivers
+        run: |
+          meson setup build/meson-native -Dminibox_dir="$PWD/chimera-checkout/extern/tools/chimera-common-minibox"
+          ninja -C build/meson-native
+
+      - name: Build the waterbox core
+        run: |
+          MINIBOX_DIR="$PWD/chimera-checkout/extern/tools/chimera-common-minibox" sh waterbox/setup-guest.sh \
+            -- -Dminibox_dir="$PWD/chimera-checkout/extern/tools/chimera-common-minibox"
+          ninja -C build/meson-guest
+
+      - name: Core gate
+        run: ./waterbox/run-gate.sh
+
+      - name: Upload core.wbx
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-wbx
+          path: build/meson-guest/core.wbx
+          retention-days: 90

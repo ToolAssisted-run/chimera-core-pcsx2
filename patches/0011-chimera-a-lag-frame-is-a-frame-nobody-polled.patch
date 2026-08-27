@@ -1,0 +1,30 @@
+diff --git a/pcsx2/SIO/Pad/PadDualshock2.cpp b/pcsx2/SIO/Pad/PadDualshock2.cpp
+index 8363a47..b99b57a 100644
+--- a/pcsx2/SIO/Pad/PadDualshock2.cpp
++++ b/pcsx2/SIO/Pad/PadDualshock2.cpp
+@@ -2,6 +2,10 @@
+ // SPDX-License-Identifier: GPL-3.0+
+ 
+ #include "SIO/Pad/PadDualshock2.h"
++
++#ifdef CHIMERA_LAG_DETECTION
++extern "C" void chimera_input_was_read(void);
++#endif
+ #include "SIO/Pad/Pad.h"
+ #include "SIO/Sio.h"
+ #include "SIO/Sio0.h"
+@@ -202,6 +206,14 @@ u8 PadDualshock2::ButtonQuery(u8 commandByte)
+ 
+ u8 PadDualshock2::Poll(u8 commandByte)
+ {
++	// chimera: a LAG FRAME is a frame the machine never looked at its input,
++	// and this is where a PlayStation 2 looks: the pad answering the SIO's poll
++	// with the state of its buttons. A frontend needs the distinction to count
++	// a movie's frames the way a tool-assisted run does.
++#ifdef CHIMERA_LAG_DETECTION
++	chimera_input_was_read();
++#endif
++
+ 	const u32 buttons = GetButtons();
+ 	u8 largeMotor = 0x00;
+ 	u8 smallMotor = 0x00;

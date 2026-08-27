@@ -42,7 +42,7 @@ defs = [
   # The software renderer generates its scanline routines at runtime through
   # xbyak. A sandbox would rather not host a code generator, and does not have
   # to: GSDrawScanline::CDrawScanline is the C++ path this build takes.
-  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM', '-DCHIMERA_MEMCARD_IN_MEMORY', '-DCHIMERA_NVRAM_IN_MEMORY',
+  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM', '-DCHIMERA_MEMCARD_IN_MEMORY', '-DCHIMERA_NVRAM_IN_MEMORY', '-DCHIMERA_LAG_DETECTION',
   # zstd ships hand-written amd64 assembly for one decode loop. The C path is
   # the same bytes out and one source language fewer in a cross-built guest.
   '-DZSTD_DISABLE_ASM',
