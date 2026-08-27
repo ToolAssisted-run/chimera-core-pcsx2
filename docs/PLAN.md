@@ -198,13 +198,38 @@ native one over 1600 frames including scripted input.
 - Two more syscalls the sandbox lacked: getcwd (the answer is "here") and
   lstat (there are no links).
 
+## Memory cards
+
+**2026-08-27: the cards travel through the save-data channel** (patch 0009 and
+the ABI's save-data exports), and the whole path is proven end to end:
+
+- The PS2's own browser sees a card in slot 1, calls it Unformatted, formats it
+  on request ("Formatting completed. 7,998 KB Free"), and the bytes that come
+  out of the save-data channel begin with "Sony PS2 Memory Card Format 1.2.".
+- Mounted back on the next run, the same card reports **Formatted**.
+- Golden Axe, which opens by warning that it cannot save, no longer warns: with
+  the card present it goes straight to its opening cutscene.
+- The card the SANDBOX produced is byte identical to the one the native
+  reference produced, over the same 2800 frames of browser navigation.
+
+The patch is small because it does not reimplement anything. PCSX2's file card
+is good code - ECC, checksums, erase blocks, the lot - and all of it is written
+against a `FILE*`. So the card is a buffer opened as a stdio stream
+(`fmemopen`, unbuffered so that a write lands in the buffer the moment the
+machine makes it), and every read, write, erase and checksum in that file goes
+on working exactly as written, into memory instead of onto a disk.
+
 ## What is known to be wrong, and is next
 
 - **The equivalence gate is not written yet**, though everything it needs now
   exists and passes by hand: 600 frames, both flavors, plus the state
   round-trip.
-- **Memory cards have no home.** They are switched off, because a card is a
-  file and this core writes no files. The save-data channel is M5.
+- **The console's NVRAM does not persist.** `bios.nvm` holds the language, the
+  clock configuration and the console id, and a core that cannot write it asks
+  for a language on every cold boot. It is the same shape of problem the cards
+  just solved, and the same answer would fit.
+- **Multitap cards are not wired.** Two slots, which is what a console has
+  without one.
 - **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO
   compile and neither has been read.
 - **Lag detection reports every frame as a lag frame.** The hook belongs where

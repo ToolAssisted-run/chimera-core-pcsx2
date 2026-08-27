@@ -47,6 +47,7 @@
 #include "Host.h"
 #include "IopMem.h"
 #include "Memory.h"
+#include "SIO/Memcard/MemoryCardFile.h"
 #include "SIO/Pad/Pad.h"
 #include "SIO/Pad/PadDualshock2.h"
 #include "VMManager.h"
@@ -95,6 +96,10 @@ static int16_t g_axes[AXIS_COUNT];
 /* the settings layer host.cpp installs, and the two things the sandbox's own
  * device and audio stream hand back */
 SettingsInterface* ChimeraGetSettings();
+/* The names the cards travel under. A frontend mounts what the last run left
+ * under these names, and stores back what this run produced. */
+static const char* const MEMCARD_NAME[2] = {"memcard1.ps2", "memcard2.ps2"};
+
 extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height);
@@ -246,21 +251,40 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore", "EnablePatches", false);
 	si.SetBoolValue("EmuCore", "SaveStateOnShutdown", false);
 
-	/* No memory cards, yet.
+	/* The memory cards.
 	 *
-	 * A card is a file PCSX2 reads and writes, and a core writes nothing (the
-	 * file system patch says why). Until the cards travel through Chimera's
-	 * save-data channel - M5 - the machine has empty slots, which is a machine
-	 * a movie can at least be recorded on, rather than one whose saves depend
-	 * on what was lying next to the frontend.
+	 * Which slots have a card in them is part of what the machine IS - a game
+	 * behaves differently with and without one, and asks about it on the first
+	 * screen - so the project decides, and the default is what a console
+	 * usually looks like: one card, in slot one.
+	 *
+	 * The cards themselves never touch a file (patch 0009): each is a buffer,
+	 * filled from whatever the frontend mounted under its name and handed back
+	 * through the save-data channel afterwards.
 	 */
-	si.SetBoolValue("MemoryCards", "Slot1_Enable", false);
-	si.SetBoolValue("MemoryCards", "Slot2_Enable", false);
+	const bool card1 = wbx_setting_bool("memcard1", 1) != 0;
+	const bool card2 = wbx_setting_bool("memcard2", 0) != 0;
+	si.SetBoolValue("MemoryCards", "Slot1_Enable", card1);
+	si.SetBoolValue("MemoryCards", "Slot2_Enable", card2);
+	si.SetStringValue("MemoryCards", "Slot1_Filename", MEMCARD_NAME[0]);
+	si.SetStringValue("MemoryCards", "Slot2_Filename", MEMCARD_NAME[1]);
+
+	/* No multitap, and so no cards behind one. */
+	si.SetBoolValue("Pad", "MultitapPort1", false);
+	si.SetBoolValue("Pad", "MultitapPort2", false);
 	for (int port = 1; port <= 2; port++)
 	{
 		for (int slot = 2; slot <= 4; slot++)
 			si.SetBoolValue("MemoryCards", fmt::format("Multitap{}_Slot{}_Enable", port, slot).c_str(), false);
 	}
+
+	/* Auto-eject exists so that a card swapped on a desktop is noticed. A
+	 * project's cards do not change while the machine runs, and a card that
+	 * ejected itself at an unpredictable moment is not something a movie can
+	 * replay. */
+	si.SetIntValue("EmuCore", "McdEjectTimeout", 0);
+	si.SetBoolValue("EmuCore", "McdEnableEjection", false);
+	si.SetBoolValue("EmuCore", "McdFolderAutoManage", false);
 
 	/* The machine's clock.
 	 *
@@ -523,13 +547,66 @@ ECL_EXPORT int GetMemoryDomainWritable(int which)
  * Save data: the memory cards.
  *
  * A PS2 saves to a memory card, which PCSX2 keeps as a file. A sandboxed core
- * has nowhere to put a file that outlives it, so the card travels through
- * Chimera's save-data channel - M5, together with the disc formats. Until
- * then a project's saves live only as long as the machine does.
+ * has nowhere to put a file that outlives it, and a movie that depended on a
+ * card sitting next to the emulator would not replay anywhere else - so the
+ * card is memory (patch 0009) and it travels through Chimera's save-data
+ * channel: the frontend mounts what the last run left under the card's name,
+ * and takes back what this run wrote.
+ *
+ * Only slots with a card in them are reported. An empty slot has nothing to
+ * save, which is different from saving an empty card.
  */
-ECL_EXPORT int32_t GetSaveDataFileCount(void) { return 0; }
-ECL_EXPORT const char* GetSaveDataFileName(int32_t i) { return nullptr; }
-ECL_EXPORT int64_t GetSaveDataFileSize(int32_t i) { return 0; }
-ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i) { return nullptr; }
+static int SaveDataSlot(int32_t i)
+{
+	int found = 0;
+	for (int slot = 0; slot < 2; slot++)
+	{
+		size_t size = 0;
+		if (!FileMcd_GetImage(static_cast<uint>(slot), &size))
+			continue;
+		if (found++ == i)
+			return slot;
+	}
+	return -1;
+}
+
+ECL_EXPORT int32_t GetSaveDataFileCount(void)
+{
+	int32_t count = 0;
+	for (int slot = 0; slot < 2; slot++)
+	{
+		size_t size = 0;
+		if (FileMcd_GetImage(static_cast<uint>(slot), &size))
+			count++;
+	}
+	return count;
+}
+
+ECL_EXPORT const char* GetSaveDataFileName(int32_t i)
+{
+	const int slot = SaveDataSlot(i);
+	return (slot >= 0) ? MEMCARD_NAME[slot] : nullptr;
+}
+
+ECL_EXPORT int64_t GetSaveDataFileSize(int32_t i)
+{
+	const int slot = SaveDataSlot(i);
+	if (slot < 0)
+		return 0;
+
+	size_t size = 0;
+	FileMcd_GetImage(static_cast<uint>(slot), &size);
+	return static_cast<int64_t>(size);
+}
+
+ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i)
+{
+	const int slot = SaveDataSlot(i);
+	if (slot < 0)
+		return nullptr;
+
+	size_t size = 0;
+	return FileMcd_GetImage(static_cast<uint>(slot), &size);
+}
 
 } /* extern "C" */

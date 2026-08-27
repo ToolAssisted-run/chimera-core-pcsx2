@@ -1,0 +1,106 @@
+diff --git a/pcsx2/SIO/Memcard/MemoryCardFile.cpp b/pcsx2/SIO/Memcard/MemoryCardFile.cpp
+index 32a34ee..4e997e7 100644
+--- a/pcsx2/SIO/Memcard/MemoryCardFile.cpp
++++ b/pcsx2/SIO/Memcard/MemoryCardFile.cpp
+@@ -159,6 +159,15 @@ class FileMemoryCard
+ {
+ protected:
+ 	std::FILE* m_file[8] = {};
++#ifdef CHIMERA_MEMCARD_IN_MEMORY
++	// chimera: the card itself. See the note above Open().
++	std::vector<u8> m_image[8];
++
++public:
++	const std::vector<u8>& GetImage(uint slot) const { return m_image[slot]; }
++
++protected:
++#endif
+ 	s64 m_fileSize[8] = {};
+ 	std::string m_filenames[8] = {};
+ 	std::vector<u8> m_currentdata;
+@@ -284,6 +293,41 @@ void FileMemoryCard::Open()
+ 			continue;
+ 		}
+ 
++#ifdef CHIMERA_MEMCARD_IN_MEMORY
++		// chimera: the card is memory, and the frontend owns what becomes of it.
++		//
++		// A sandboxed core has nowhere to keep a file that outlives it, and a
++		// movie that depended on a card lying next to the emulator would not
++		// replay anywhere else. So the card is a buffer: loaded from whatever
++		// the frontend mounted under this name (Chimera's save-data channel
++		// hands back what the last run left), or blank - which is what an
++		// unformatted card is, all ones - and handed back through the same
++		// channel when the frontend asks.
++		//
++		// Everything below this point is upstream's, unchanged, because the
++		// buffer is opened as a stdio stream: every read, write, erase and
++		// checksum in this file goes on working exactly as written, and lands
++		// in memory instead of on a disk. Unbuffered, so that what the machine
++		// wrote is in the buffer the moment it wrote it, rather than whenever
++		// stdio felt like flushing.
++		{
++			constexpr size_t CARD_SIZE = MC2_MBSIZE * 8;
++
++			std::optional<std::vector<u8>> loaded = FileSystem::ReadBinaryFile(fname.c_str());
++			if (loaded.has_value() && !loaded->empty())
++			{
++				m_image[slot] = std::move(loaded.value());
++			}
++			else
++			{
++				m_image[slot].assign(CARD_SIZE, 0xFF);
++			}
++
++			m_file[slot] = fmemopen(m_image[slot].data(), m_image[slot].size(), "r+b");
++			if (m_file[slot])
++				setvbuf(m_file[slot], nullptr, _IONBF, 0);
++		}
++#else
+ 		if (FileSystem::GetPathFileSize(fname.c_str()) <= 0)
+ 		{
+ 			if (!Create(fname.c_str(), 8))
+@@ -311,6 +355,7 @@ void FileMemoryCard::Open()
+ 		{
+ 			m_file[slot] = FileSystem::OpenSharedCFile(fname.c_str(), "r+b", FileSystem::FileShareMode::DenyWrite);
+ 		}
++#endif
+ 
+ 		if (!m_file[slot])
+ 		{
+@@ -572,6 +617,18 @@ namespace Mcd
+ 	FolderMemoryCardAggregator implFolder;
+ }; // namespace Mcd
+ 
++#ifdef CHIMERA_MEMCARD_IN_MEMORY
++// chimera: what the save-data channel hands the frontend. A slot with no card
++// in it reports nothing, which is what the frontend should then persist: not
++// an empty file, but no file.
++const u8* FileMcd_GetImage(uint slot, size_t* size)
++{
++	const std::vector<u8>& image = Mcd::impl.GetImage(slot);
++	*size = image.size();
++	return image.empty() ? nullptr : image.data();
++}
++#endif
++
+ uint FileMcd_ConvertToSlot(uint port, uint slot)
+ {
+ 	if (slot == 0)
+diff --git a/pcsx2/SIO/Memcard/MemoryCardFile.h b/pcsx2/SIO/Memcard/MemoryCardFile.h
+index cf677a3..cf30e27 100644
+--- a/pcsx2/SIO/Memcard/MemoryCardFile.h
++++ b/pcsx2/SIO/Memcard/MemoryCardFile.h
+@@ -36,6 +36,12 @@ extern uint FileMcd_GetMtapSlot(uint slot);
+ extern bool FileMcd_IsMultitapSlot(uint slot);
+ extern std::string FileMcd_GetDefaultName(uint slot);
+ 
++#ifdef CHIMERA_MEMCARD_IN_MEMORY
++/// chimera: a slot's card as bytes, for the save-data channel. Null when the
++/// slot is empty.
++const u8* FileMcd_GetImage(uint slot, size_t* size);
++#endif
++
+ uint FileMcd_ConvertToSlot(uint port, uint slot);
+ void FileMcd_SetType();
+ void FileMcd_EmuOpen();
