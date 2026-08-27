@@ -102,7 +102,21 @@ than a precondition.
   the disc through a file slot, the bios through the firmware channel, the
   memory cards and the console's NVRAM through the save-data channel. CHD and
   CSO compile but have not been read.
-- **M6 - the frontend leg.** The package inside Chimera.
+- **M6 - the frontend leg.** The package inside Chimera. NOT STARTED.
+
+## The gate
+
+`waterbox/run-gate.sh`, in tiers, because a PS2 needs a bios to do anything:
+with nothing it proves both flavors refuse a machine with no bios and say why;
+with a bios it proves the machine (equivalence, the savestate round-trip,
+determinism, the domains, the picture, the pad, lag counting, save data); with
+a disc it proves a game loads and runs identically in the sandbox. Missing
+content reports SKIP with what it would have proven. 13 of 13 green locally.
+
+Lag detection landed with it (patch 0011): a lag frame is a frame the machine
+never looked at its input, and a PS2 looks where the pad answers the SIO poll.
+The first 29 frames of a cold boot are lag frames - the IOP has not loaded its
+pad driver - and the count stops growing the moment it has.
 
 ## Log
 
@@ -235,12 +249,9 @@ straight to the browser. Guest and native produce the same kilobyte.
 
 ## What is known to be wrong, and is next
 
-- **The equivalence gate is not written yet**, though everything it needs now
-  exists and passes by hand: 600 frames, both flavors, plus the state
-  round-trip.
 - **Multitap cards are not wired.** Two slots, which is what a console has
   without one.
 - **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO
   compile and neither has been read.
-- **Lag detection reports every frame as a lag frame.** The hook belongs where
-  the pad answers the SIO's poll, and without it a movie cannot count lag.
+- **The frontend leg (M6) does not exist**: no waterbox.config, no file slots,
+  no keybinds, no package. Nothing has ever run inside Chimera itself.
