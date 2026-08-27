@@ -1,0 +1,3 @@
+[submodule "extern/pcsx2"]
+	path = extern/pcsx2
+	url = https://github.com/PCSX2/pcsx2.git

@@ -1,0 +1,13 @@
+# Meson build trees: the guest cross file and both build dirs are machine-local
+build/
+
+# Copyrighted content never enters this repository. A PS2 needs a bios to boot
+# ANYTHING - there is no HLE bios - so both of these are required for testing
+# and neither can be committed:
+#   tests/roms-local/       discs and homebrew
+#   tests/firmware-local/   ps2 bios images
+tests/roms-local/
+tests/firmware-local/
+
+# the sandbox writes this when a guest faults
+minibox-diag.log
