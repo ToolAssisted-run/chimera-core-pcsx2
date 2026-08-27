@@ -98,8 +98,10 @@ than a precondition.
   animation is visible at 640x448. Textures and interlacing are undrawn by
   anything so far; a real disc is what will test them.
 - **M4 - input, domains, savestates.** The legs every other core has.
-- **M5 - discs and memory cards.** ISO/CHD through the file slots, the memory
-  card through the save-data channel, the bios through the firmware channel.
+- **M5 - discs and memory cards.** DONE 2026-08-27 for what a project needs:
+  the disc through a file slot, the bios through the firmware channel, the
+  memory cards and the console's NVRAM through the save-data channel. CHD and
+  CSO compile but have not been read.
 - **M6 - the frontend leg.** The package inside Chimera.
 
 ## Log
@@ -219,15 +221,23 @@ against a `FILE*`. So the card is a buffer opened as a stdio stream
 machine makes it), and every read, write, erase and checksum in that file goes
 on working exactly as written, into memory instead of onto a disk.
 
+## What the console remembers
+
+The NVRAM travels the same way (patch 0010). It holds the language, the clock
+configuration, the region parameters and the machine's iLink id, and without it
+a PS2 asks for a language on every cold boot - which it did here, every run.
+It was already a buffer (`s_nvram`, one kilobyte); upstream only touched a file
+to remember it between runs, so the patch is an accessor and a write that no
+longer happens.
+
+With the saved NVRAM mounted back, the console skips its setup screens and goes
+straight to the browser. Guest and native produce the same kilobyte.
+
 ## What is known to be wrong, and is next
 
 - **The equivalence gate is not written yet**, though everything it needs now
   exists and passes by hand: 600 frames, both flavors, plus the state
   round-trip.
-- **The console's NVRAM does not persist.** `bios.nvm` holds the language, the
-  clock configuration and the console id, and a core that cannot write it asks
-  for a language on every cold boot. It is the same shape of problem the cards
-  just solved, and the same answer would fit.
 - **Multitap cards are not wired.** Two slots, which is what a console has
   without one.
 - **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO

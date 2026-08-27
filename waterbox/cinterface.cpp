@@ -41,6 +41,7 @@
 #include <waterbox_settings.h>
 #include <waterbox_slots.h>
 
+#include "CDVD/CDVD.h"
 #include "CDVD/CDVDcommon.h"
 #include "Config.h"
 #include "GS/GS.h"
@@ -99,6 +100,11 @@ SettingsInterface* ChimeraGetSettings();
 /* The names the cards travel under. A frontend mounts what the last run left
  * under these names, and stores back what this run produced. */
 static const char* const MEMCARD_NAME[2] = {"memcard1.ps2", "memcard2.ps2"};
+
+/* ...and what the CONSOLE remembers when it is switched off: the language, the
+ * clock configuration, the region parameters, the machine's iLink id. PCSX2
+ * names it after the bios file, and so does this. */
+static const char* const NVRAM_NAME = "bios.nvm";
 
 extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
@@ -556,57 +562,74 @@ ECL_EXPORT int GetMemoryDomainWritable(int which)
  * Only slots with a card in them are reported. An empty slot has nothing to
  * save, which is different from saving an empty card.
  */
-static int SaveDataSlot(int32_t i)
+/* What this machine persists, in order: the cards that are actually in a slot,
+ * and then the console's own memory. An empty slot has nothing to save, which
+ * is not the same as saving an empty card. */
+struct SaveData
 {
-	int found = 0;
-	for (int slot = 0; slot < 2; slot++)
+	const char* name;
+	const uint8_t* data;
+	int64_t size;
+};
+
+static int CollectSaveData(SaveData* out, int max)
+{
+	int count = 0;
+
+	for (int slot = 0; slot < 2 && count < max; slot++)
 	{
 		size_t size = 0;
-		if (!FileMcd_GetImage(static_cast<uint>(slot), &size))
+		const u8* image = FileMcd_GetImage(static_cast<uint>(slot), &size);
+		if (!image)
 			continue;
-		if (found++ == i)
-			return slot;
+		out[count++] = {MEMCARD_NAME[slot], image, static_cast<int64_t>(size)};
 	}
-	return -1;
+
+	if (count < max)
+	{
+		size_t size = 0;
+		const u8* nvram = cdvdGetNVRAM(&size);
+		if (nvram)
+			out[count++] = {NVRAM_NAME, nvram, static_cast<int64_t>(size)};
+	}
+
+	return count;
+}
+
+#define MAX_SAVEDATA 4
+
+static int SaveDataAt(int32_t i, SaveData* item)
+{
+	SaveData items[MAX_SAVEDATA];
+	const int count = CollectSaveData(items, MAX_SAVEDATA);
+	if (i < 0 || i >= count)
+		return 0;
+	*item = items[i];
+	return 1;
 }
 
 ECL_EXPORT int32_t GetSaveDataFileCount(void)
 {
-	int32_t count = 0;
-	for (int slot = 0; slot < 2; slot++)
-	{
-		size_t size = 0;
-		if (FileMcd_GetImage(static_cast<uint>(slot), &size))
-			count++;
-	}
-	return count;
+	SaveData items[MAX_SAVEDATA];
+	return CollectSaveData(items, MAX_SAVEDATA);
 }
 
 ECL_EXPORT const char* GetSaveDataFileName(int32_t i)
 {
-	const int slot = SaveDataSlot(i);
-	return (slot >= 0) ? MEMCARD_NAME[slot] : nullptr;
+	SaveData item;
+	return SaveDataAt(i, &item) ? item.name : nullptr;
 }
 
 ECL_EXPORT int64_t GetSaveDataFileSize(int32_t i)
 {
-	const int slot = SaveDataSlot(i);
-	if (slot < 0)
-		return 0;
-
-	size_t size = 0;
-	FileMcd_GetImage(static_cast<uint>(slot), &size);
-	return static_cast<int64_t>(size);
+	SaveData item;
+	return SaveDataAt(i, &item) ? item.size : 0;
 }
 
 ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i)
 {
-	const int slot = SaveDataSlot(i);
-	if (slot < 0)
-		return nullptr;
-
-	size_t size = 0;
-	return FileMcd_GetImage(static_cast<uint>(slot), &size);
+	SaveData item;
+	return SaveDataAt(i, &item) ? item.data : nullptr;
 }
 
 } /* extern "C" */

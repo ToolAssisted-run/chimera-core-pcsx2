@@ -1,0 +1,67 @@
+diff --git a/pcsx2/CDVD/CDVD.cpp b/pcsx2/CDVD/CDVD.cpp
+index 405bebb..2d5724a 100644
+--- a/pcsx2/CDVD/CDVD.cpp
++++ b/pcsx2/CDVD/CDVD.cpp
+@@ -196,14 +196,38 @@ void cdvdLoadNVRAM()
+ 
+ 		ERROR_LOG("Failed to open or read MEC file at {}: {}, creating default.", Path::GetFileName(nvmfile),
+ 			error.GetDescription());
++#ifndef CHIMERA_NVRAM_IN_MEMORY
+ 		fp.reset();
+ 		fp = FileSystem::OpenManagedCFileTryIgnoreCase(mecfile.c_str(), "wb");
+ 		if (!fp || std::fwrite(&s_mecha_version, sizeof(s_mecha_version), 1, fp.get()) != 1)
+ 			Host::ReportErrorAsync("Error", "Failed to write MEC file. Check your BIOS setup/permission settings.");
++#endif
+ 	}
+ 	DEV_LOG("Mechacon version: 0x{:08X}", s_mecha_version);
+ }
+ 
++#ifdef CHIMERA_NVRAM_IN_MEMORY
++// chimera: the console's own memory, handed to the frontend.
++//
++// The NVRAM already IS a buffer - the machine reads and writes s_nvram, and
++// upstream only touches a file to remember it between runs. A sandboxed core
++// cannot write that file and should not: what a machine persists belongs to
++// the project, so it leaves through Chimera's save-data channel like a memory
++// card does, and arrives back mounted under the same name.
++//
++// This is what the console keeps when it is switched off: the language, the
++// clock configuration, the region parameters and the machine's iLink id.
++const u8* cdvdGetNVRAM(size_t* size)
++{
++	*size = NVRAM_SIZE;
++	return s_nvram;
++}
++
++void cdvdSaveNVRAM()
++{
++	// nothing to do: the frontend takes it through the save-data channel
++}
++#else
+ void cdvdSaveNVRAM()
+ {
+ 	Error error;
+@@ -237,6 +261,7 @@ void cdvdSaveNVRAM()
+ 		ERROR_LOG("Failed to save NVRAM to {}: {}", Path::GetFileName(nvmfile), Error::CreateErrno(errno).GetDescription());
+ 	}
+ }
++#endif
+ 
+ static void cdvdReadNVM(u8* dst, int offset, int bytes)
+ {
+diff --git a/pcsx2/CDVD/CDVD.h b/pcsx2/CDVD/CDVD.h
+index c7ab33f..e485ff2 100644
+--- a/pcsx2/CDVD/CDVD.h
++++ b/pcsx2/CDVD/CDVD.h
+@@ -168,6 +168,11 @@ extern void cdvdReadLanguageParams(u8* config);
+ 
+ extern void cdvdLoadNVRAM();
+ extern void cdvdSaveNVRAM();
++
++#ifdef CHIMERA_NVRAM_IN_MEMORY
++/// chimera: the console's NVRAM as bytes, for the save-data channel.
++extern const u8* cdvdGetNVRAM(size_t* size);
++#endif
+ extern void cdvdReset();
+ extern void cdvdVsync();
+ extern void cdvdActionInterrupt();
