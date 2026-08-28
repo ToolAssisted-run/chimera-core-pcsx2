@@ -22,16 +22,7 @@
 
 #include <cstdio>
 #include <vector>
-#include <unistd.h>
-
-/* How much of the guest heap this costs, which is the thing that decides
- * whether an OpenGL implementation fits in a sandbox beside a PS2. */
-static void ReportHeap(const char *what)
-{
-	if (getenv("CHIMERA_HEAP") != nullptr)
-		fprintf(stderr, "chimera heap %-28s %.1f MiB\n", what,
-			(double)(uintptr_t)sbrk(0) / (1024.0 * 1024.0));
-}
+#include <algorithm>
 
 /* OSMesa's entry points, declared rather than included: <GL/osmesa.h> pulls in
  * Mesa's own <GL/gl.h>, and this file already has glad's, which declares the
@@ -76,9 +67,7 @@ public:
 		m_surface.resize((size_t)m_width * m_height * 4);
 
 		/* 24 bit depth and 8 bit stencil: the renderer uses both. */
-		ReportHeap("before the context");
 		m_context = OSMesaCreateContextExt(OSMESA_RGBA, 24, 8, 0, nullptr);
-		ReportHeap("after the context");
 		if (m_context == nullptr)
 			return false;
 
@@ -86,7 +75,6 @@ public:
 				(GLsizei)m_width, (GLsizei)m_height))
 			return false;
 
-		ReportHeap("after making it current");
 		m_version.major_version = 3;
 		m_version.minor_version = 3;
 		return true;
