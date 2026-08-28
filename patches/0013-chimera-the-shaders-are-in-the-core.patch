@@ -1,0 +1,24 @@
+diff --git a/pcsx2/GS/Renderers/Common/GSDevice.cpp b/pcsx2/GS/Renderers/Common/GSDevice.cpp
+index a4f70a9..927b1a9 100644
+--- a/pcsx2/GS/Renderers/Common/GSDevice.cpp
++++ b/pcsx2/GS/Renderers/Common/GSDevice.cpp
+@@ -368,7 +368,19 @@ GSVector4i GSDevice::ProcessCopyArea(const GSVector4i& rtsize, const GSVector4i&
+ 
+ std::optional<std::string> GSDevice::ReadShaderSource(const char* filename)
+ {
++#ifdef CHIMERA_EMBEDDED_SHADERS
++	/* chimera: a core has no resources directory. Its file system is whatever
++	 * the project mounted, and shaders are not the project's business - they
++	 * are part of the renderer, and a core that loses them draws nothing. So
++	 * they are compiled in; see waterbox/gen-shaders.py. */
++	extern const char* ChimeraFindShader(const char* name, size_t* size);
++	size_t size = 0;
++	if (const char* text = ChimeraFindShader(filename, &size))
++		return std::string(text, size);
++	return std::nullopt;
++#else
+ 	return FileSystem::ReadFileToString(Path::Combine(EmuFolders::Resources, filename).c_str());
++#endif
+ }
+ 
+ int GSDevice::GetMipmapLevelsForSize(int width, int height)

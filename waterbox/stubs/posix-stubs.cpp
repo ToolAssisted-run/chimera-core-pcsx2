@@ -74,6 +74,15 @@ extern "C" int mkdir(const char *path, mode_t mode)
  */
 extern "C" int prctl(int option, ...) { return 0; }
 
+/* Who the guest is. There is one user inside a sandbox and it owns everything
+ * it can see, so it is user zero. Mesa asks while deciding whether it may
+ * trust its shader cache directory; nobody here has a home directory to put
+ * one in either way. */
+extern "C" uid_t geteuid(void) { return 0; }
+extern "C" uid_t getuid(void) { return 0; }
+extern "C" gid_t getegid(void) { return 0; }
+extern "C" gid_t getgid(void) { return 0; }
+
 /* Where the machine is.
  *
  * PCSX2 resolves a relative path by asking where the process is standing. A

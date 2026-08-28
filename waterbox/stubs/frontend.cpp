@@ -116,9 +116,11 @@ ImVec2 CalculatePerformanceOverlayTextPosition(OsdOverlayPos position, float mar
 }
 
 /* ---------------------------------------------------------------------------
- * Replacement textures, and the hardware texture cache they live in. Patch
- * 0002 leaves no hardware renderer to apply either to.
+ * Replacement textures, and the hardware texture cache they live in. Without
+ * a guest Mesa there is no hardware renderer to apply either to (patch 0002),
+ * so they are answered here; with one, the real ones are compiled.
  */
+#ifndef CHIMERA_GUEST_GL
 std::unique_ptr<GSTextureCache> g_texture_cache;
 
 namespace GSTextureReplacements
@@ -128,6 +130,7 @@ namespace GSTextureReplacements
 	void UpdateConfig(Pcsx2Config::GSOptions& old_config) {}
 	void Shutdown() {}
 } // namespace GSTextureReplacements
+#endif
 
 /* ---------------------------------------------------------------------------
  * The last few things a desktop has and a sandbox does not.
@@ -169,7 +172,9 @@ namespace GSPng
 /* The hardware texture cache: declared because the pointer above is, destroyed
  * because a unique_ptr wants to know how. It is never constructed.
  */
+#ifndef CHIMERA_GUEST_GL
 GSTextureCache::~GSTextureCache() = default;
+#endif
 
 namespace ImGuiFreeType
 {

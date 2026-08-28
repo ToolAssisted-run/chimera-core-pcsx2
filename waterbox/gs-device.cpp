@@ -31,6 +31,11 @@
  * replays on another machine must not depend on how someone's filter rounded.
  */
 #include "GS/GS.h"
+#ifdef CHIMERA_GUEST_GL
+#include "GS/Renderers/OpenGL/GSTextureOGL.h"
+#include "glad/gl.h"
+#include <vector>
+#endif
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/Renderers/Common/GSTexture.h"
 
@@ -352,6 +357,30 @@ extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* 
 	GSTexture* current = g_gs_device ? g_gs_device->GetCurrent() : nullptr;
 	if (!current)
 		return false;
+
+#ifdef CHIMERA_GUEST_GL
+	/* Under the OpenGL renderer the frame is a GL texture rather than a piece
+	 * of this core's memory, so it is read back into one. glGetTextureImage
+	 * rather than a framebuffer read: what was presented is this texture, and
+	 * whatever is in framebuffer 0 is whatever was left lying there. */
+	if (g_gs_device->GetRenderAPI() == RenderAPI::OpenGL)
+	{
+		static std::vector<u8> readback;
+		const GSVector2i size = current->GetSize();
+		const size_t need = (size_t)size.x * size.y * 4;
+		if (readback.size() < need)
+			readback.resize(need);
+
+		glGetTextureImage(static_cast<GSTextureOGL*>(current)->GetID(), 0,
+			GL_RGBA, GL_UNSIGNED_BYTE, (GLsizei)readback.size(), readback.data());
+
+		*bits = readback.data();
+		*pitch = size.x * 4;
+		*width = size.x;
+		*height = size.y;
+		return true;
+	}
+#endif
 
 	ChimeraTexture* tex = static_cast<ChimeraTexture*>(current);
 	*bits = tex->GetBits();

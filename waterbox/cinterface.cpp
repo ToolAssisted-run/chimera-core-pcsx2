@@ -223,9 +223,24 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEECache", false);
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableFastmem", false);
 
-	/* The software renderer, with no threads of its own. Patch 0002 leaves
-	 * nothing else in the build. */
-	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::SW));
+	/* Which renderer draws, with no threads of its own either way.
+	 *
+	 * Without a guest Mesa, patch 0002 leaves nothing in the build but the
+	 * software renderer. With one, PCSX2's OpenGL renderer is here too, and it
+	 * draws through a Mesa softpipe compiled into this core: still no GPU,
+	 * still nothing asked of the machine this runs on, so both are
+	 * deterministic and a movie made under one replays under the other.
+	 * See waterbox/gl-osmesa.cpp. */
+	GSRendererType gsRenderer = GSRendererType::SW;
+#ifdef CHIMERA_GUEST_GL
+	{
+		char value[16] = "software";
+		wbx_setting_str("renderer", value, sizeof(value));
+		if (!strcmp(value, "opengl"))
+			gsRenderer = GSRendererType::OGL;
+	}
+#endif
+	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(gsRenderer));
 	si.SetIntValue("EmuCore/GS", "extrathreads", 0);
 
 	/* No deinterlacing.

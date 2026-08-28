@@ -10,9 +10,12 @@
 # or a settings dialog should not.
 #
 # What is deliberately absent, and why:
-#   GS/Renderers/{OpenGL,Vulkan,DX11,DX12,Metal}  no GPU in a sandbox
-#   GS/Renderers/HW                               hardware renderer; the SW one
-#                                                 is the machine's own
+#   GS/Renderers/{Vulkan,DX11,DX12,Metal}         no GPU in a sandbox
+#   GS/Renderers/{OpenGL,HW}                      built only when this core is
+#                                                 given a guest Mesa: then the
+#                                                 GL renderer and the OpenGL
+#                                                 answering it both run INSIDE
+#                                                 the sandbox (gl-osmesa.cpp)
 #   x86/                                          the EE, IOP and VU
 #                                                 recompilers: this core
 #                                                 interprets (docs/PLAN.md)
@@ -85,6 +88,22 @@ gs_srcs() {
 	# out to be able to host it.
 	find "$p/pcsx2/GS/Renderers/Common" "$p/pcsx2/GS/Renderers/SW" \
 		"$p/pcsx2/GS/Renderers/Null" -name '*.cpp' | grep -v -e "arm64"
+
+	# The OpenGL renderer, when there is an OpenGL for it to call. Mesa's
+	# softpipe is compiled into the guest, so this is not a GPU: it is a second
+	# software renderer, and the one most games are looked at through.
+	# The platform contexts (EGL, WGL, X11, Wayland) stay out - there is no
+	# window system here, and waterbox/gl-osmesa.cpp is the context instead.
+	if [ -n "${CHIMERA_GUEST_MESA:-}" ]; then
+		# ...minus the texture replacement loaders, which decode PNG and DDS
+		# off disk for a user's own replacement textures. A project's picture
+		# is the machine's, and a core has no texture pack directory.
+		find "$p/pcsx2/GS/Renderers/HW" -name '*.cpp' \
+			| grep -v -e "GSTextureReplacementLoaders"
+		find "$p/pcsx2/GS/Renderers/OpenGL" -name '*.cpp' \
+			| grep -v -e "GLContextEGL" -e "GLContextWGL"
+		echo "$p/3rdparty/glad/src/gl.c"
+	fi
 }
 
 # common/ is PCSX2's own utility library: files, threads, memory, strings.

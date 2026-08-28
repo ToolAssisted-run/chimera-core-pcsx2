@@ -191,3 +191,23 @@ bool FolderMemoryCardAggregator::ReIndex(uint slot, const bool enableFiltering, 
 }
 
 FileAccessHelper::~FileAccessHelper() = default;
+
+#ifdef CHIMERA_GUEST_GL
+/* A user's own replacement textures, loaded from PNG and DDS files off disk,
+ * and the screenshots the dumper writes back. A project's picture is the
+ * machine's; a core has no texture pack directory and nowhere to dump to. The
+ * loaders are the only thing in the hardware renderer that wanted libpng. */
+#include "GS/Renderers/HW/GSTextureReplacements.h"
+
+GSTextureReplacements::ReplacementTextureLoader GSTextureReplacements::GetLoader(
+	const std::string_view filename)
+{
+	return nullptr;
+}
+
+bool GSTextureReplacements::SavePNGImage(const std::string& filename, u32 width, u32 height,
+	const u8* buffer, u32 pitch)
+{
+	return false;
+}
+#endif

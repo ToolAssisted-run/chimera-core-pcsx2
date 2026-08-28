@@ -1,0 +1,55 @@
+diff --git a/pcsx2/GS/Renderers/OpenGL/GLContext.cpp b/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
+index 1d68df1..43586bc 100644
+--- a/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
++++ b/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
+@@ -3,7 +3,12 @@
+ 
+ #include "GS/Renderers/OpenGL/GLContext.h"
+ 
+-#if defined(_WIN32)
++// chimera: there is no window system in a sandbox, and no GPU either. The
++// context comes from a Mesa softpipe compiled into this core - a real OpenGL
++// implementation that rasterises in plain C. See waterbox/gl-osmesa.cpp.
++#if defined(CHIMERA_GUEST_GL)
++std::unique_ptr<GLContext> ChimeraCreateGLContext(const WindowInfo& wi, Error* error);
++#elif defined(_WIN32)
+ #include "GS/Renderers/OpenGL/GLContextWGL.h"
+ #else // Linux
+ #ifdef X11_API
+@@ -42,7 +47,9 @@ std::unique_ptr<GLContext> GLContext::Create(const WindowInfo& wi, Error* error)
+ 
+ 	std::unique_ptr<GLContext> context;
+ 	Error local_error;
+-#if defined(_WIN32)
++#if defined(CHIMERA_GUEST_GL)
++	context = ChimeraCreateGLContext(wi, error);
++#elif defined(_WIN32)
+ 	context = GLContextWGL::Create(wi, vlist, error);
+ #else // Linux
+ #if defined(X11_API)
+diff --git a/pcsx2/GS/Renderers/OpenGL/GSDeviceOGL.cpp b/pcsx2/GS/Renderers/OpenGL/GSDeviceOGL.cpp
+index e3b8f7b..4c00c7c 100644
+--- a/pcsx2/GS/Renderers/OpenGL/GSDeviceOGL.cpp
++++ b/pcsx2/GS/Renderers/OpenGL/GSDeviceOGL.cpp
+@@ -28,10 +28,21 @@ static constexpr u32 g_vs_vb_index        = 2;
+ static constexpr u32 g_vs_cb_index        = 1;
+ static constexpr u32 g_ps_cb_index        = 0;
+ 
++#ifdef CHIMERA_GUEST_GL
++// chimera: these are sized for a graphics card streaming a frame ahead. The
++// OpenGL here is a softpipe inside the sandbox: nothing is streamed anywhere,
++// every buffer is guest heap, and 80 MB of them is 80 MB the machine does not
++// get. An eighth of each is still far more than a PS2 frame submits.
++static constexpr u32 VERTEX_BUFFER_SIZE = 4 * 1024 * 1024;
++static constexpr u32 INDEX_BUFFER_SIZE = 2 * 1024 * 1024;
++static constexpr u32 VERTEX_UNIFORM_BUFFER_SIZE = 1 * 1024 * 1024;
++static constexpr u32 FRAGMENT_UNIFORM_BUFFER_SIZE = 1 * 1024 * 1024;
++#else
+ static constexpr u32 VERTEX_BUFFER_SIZE = 32 * 1024 * 1024;
+ static constexpr u32 INDEX_BUFFER_SIZE = 16 * 1024 * 1024;
+ static constexpr u32 VERTEX_UNIFORM_BUFFER_SIZE = 8 * 1024 * 1024;
+ static constexpr u32 FRAGMENT_UNIFORM_BUFFER_SIZE = 8 * 1024 * 1024;
++#endif
+ static constexpr u32 VERTEX_PUSH_CONSTANT_BUFFER_SIZE = 1024 * 1024;
+ static constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 128 * 1024 * 1024;
+ 

@@ -153,7 +153,7 @@ int main(int argc, char **argv)
 	 * which this build reserves and never writes. The sandbox charges for pages
 	 * that are TOUCHED, so most of that is address space rather than memory -
 	 * but the arena has to be big enough to hold it. */
-	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 64u << 20, 16u << 20, 1024u << 20 };
+	mb_memory_layout_template layout = { 1280u << 20, 16u << 20, 64u << 20, 16u << 20, 1024u << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);

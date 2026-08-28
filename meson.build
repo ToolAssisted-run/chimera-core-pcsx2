@@ -105,6 +105,7 @@ inc = include_directories(
   fc / '3rdparty/soundtouch/soundtouch',
   fc / '3rdparty/xbyak',
   fc / '3rdparty/include',
+  fc / '3rdparty/glad/include',   # the GL loader, for the OpenGL renderer
   fc / '3rdparty/cpuinfo/include',
   fc / '3rdparty/zydis/include',
   # lz4 comes last: it carries a private xxhash.h, and PCSX2's own copy (in
@@ -114,9 +115,31 @@ inc = include_directories(
   'waterbox/generated',
 )
 
+# A guest Mesa turns on PCSX2's OpenGL renderer: see waterbox/gl-osmesa.cpp
+# for what it is and why it is not a GPU.
+mesa = get_option('mesa_guest_dir')
+guest_gl = mesa != ''
+sources_env = environment()
+if guest_gl
+  sources_env.set('CHIMERA_GUEST_MESA', mesa)
+  add_project_arguments(['-DCHIMERA_GUEST_GL', '-DCHIMERA_EMBEDDED_SHADERS'],
+    language: ['c', 'cpp'])
+endif
+
 sources_sh = files('waterbox/sources.sh')
-core_sources = files(run_command(sources_sh, 'main', check: true).stdout().strip().split('\n'))
-dep_sources = files(run_command(sources_sh, 'deps', check: true).stdout().strip().split('\n'))
+core_sources = files(run_command(sources_sh, 'main', env: sources_env, check: true).stdout().strip().split('\n'))
+dep_sources = files(run_command(sources_sh, 'deps', env: sources_env, check: true).stdout().strip().split('\n'))
+
+# PCSX2 reads its GLSL out of a resources directory; a core has none, so the
+# shaders are compiled in (waterbox/gen-shaders.py says why).
+gl_sources = []
+if guest_gl
+  shaders_cpp = custom_target('chimera-shaders',
+    output: 'chimera-shaders.cpp',
+    command: [find_program('python3'), files('waterbox/gen-shaders.py'),
+      meson.current_source_dir() / fc / 'bin/resources', '@OUTPUT@'])
+  gl_sources = [shaders_cpp, files('waterbox/gl-osmesa.cpp')]
+endif
 
 deps_lib = static_library('pcsx2-deps', dep_sources, include_directories: inc)
 
@@ -142,11 +165,29 @@ if meson.is_cross_build()
   mbuild = meson.get_external_property('minibox_build')
   sr = meson.get_external_property('guest_sysroot')
 
-  executable('core', core_sources + driver_sources,
+  # Mesa, for the guest. Its static archives are linked in a group because they
+  # refer to each other both ways, and the osmesa target's own object comes
+  # separately: the shared library it belongs to cannot be built for a guest
+  # (-fno-pic, -mcmodel=large), but osmesa_create_screen lives in it.
+  mesa_link = []
+  if guest_gl
+    mesa_archives = run_command('find', mesa / 'build-guest2', '-name', '*.a',
+      check: true).stdout().strip().split('\n')
+    mesa_target = run_command('find', mesa / 'build-guest2/src/gallium/targets/osmesa',
+      '-name', 'target.c.o', check: true).stdout().strip().split('\n')
+    # Mesa declares pthread_mutexattr_* WEAK as a build workaround. Statically
+    # linked they would resolve to address zero, and Mesa calls null the first
+    # time it makes a recursive mutex.
+    mesa_link = mesa_target + ['-Wl,--start-group'] + mesa_archives + ['-Wl,--end-group',
+      '-Wl,-u,pthread_mutexattr_init', '-Wl,-u,pthread_mutexattr_settype',
+      '-Wl,-u,pthread_mutexattr_destroy']
+  endif
+
+  executable('core', core_sources + driver_sources + gl_sources,
     name_suffix: 'wbx',
     include_directories: inc,
     link_with: [deps_lib],
-    link_args: [
+    link_args: mesa_link + [
       '-static', '-no-pie',
       '-Wl,--eh-frame-hdr', '-Wl,-O2', '-Wl,--no-relax',
       '-Wl,-z,stack-size=8388608',
