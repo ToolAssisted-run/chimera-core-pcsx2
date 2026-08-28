@@ -187,12 +187,14 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 {
 	/* The bios. There is no HLE alternative on a PS2 - nothing boots without
 	 * one - so the frontend guarantees the file is mounted (the firmware
-	 * declaration in waterbox.config) and the project names it. */
-	char bios[256];
-	strncpy(bios, "bios.bin", sizeof(bios) - 1);
-	bios[sizeof(bios) - 1] = '\0';
-	wbx_setting_str("bios", bios, sizeof(bios));
-	si.SetStringValue("Filenames", "BIOS", bios);
+	 * declaration in waterbox.config).
+	 *
+	 * It always arrives under the DECLARATION ID, whichever dump the project
+	 * chose: the package declares one firmware entry per known bios, each
+	 * nailed to a value of the "bios" setting, and the frontend resolves the
+	 * one the project asked for and mounts it here. So this core opens one
+	 * name, and which console it is was decided before it ran. */
+	si.SetStringValue("Filenames", "BIOS", "bios.bin");
 
 	/* PCSX2 says a great deal about what it is doing, and a core that swallowed
 	 * it would be a core nobody can debug. It goes to stderr, where a gate and a

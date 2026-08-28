@@ -63,6 +63,12 @@ if [ -z "$bios" ]; then
 fi
 disc="$(find "$root/tests/roms" -maxdepth 1 \( -name '*.iso' -o -name '*.bin' \) 2>/dev/null | sort | head -1)"
 
+# Which bios this is, said out loud: the package declares one firmware entry per
+# dump, each nailed to a "bios" setting value, so the project has to name the one
+# it wants. The file the test found decides the value, which is what a user
+# choosing that bios in the wizard would have stored.
+bios_choice="$(basename "$bios" .bin)"
+
 if [ -z "$bios" ] || [ -z "$disc" ]; then
 	report "disc:frontend" SKIP "needs a bios in tests/roms/bios/ and a disc in tests/roms/"
 	report "settings:clock" SKIP "would prove a machine-shaping setting reaches the guest"
@@ -147,7 +153,7 @@ settings_config() { python3 "$here/settings-config.py" "$config" "$1" "$2" "$3";
 # a leg that proves the frontend mounted nothing. (It did, once: the core only
 # knew how to find a disc through a project's slot map, and a rom opened
 # directly arrives under the name waterbox.config calls "romFile".)
-settings_config "$work/config.base.ini" '{"fast_boot": true}' "$firmware_json"
+settings_config "$work/config.base.ini" "{\"fast_boot\": true, \"bios\": \"$bios_choice\"}" "$firmware_json"
 if ! native_ram "base" '{"fast_boot":true}'; then
 	report "disc:frontend" FAIL "native runner error (see tests/work/native.base.txt)"
 elif ! run_frontend "base" "$work/config.base.ini" "$frames" "$work/base.png"; then
@@ -171,7 +177,7 @@ fi
 # a fast boot, the game has not asked yet - so the leg looks where the setting
 # actually lands, and requires the EE side to match its native reference all
 # the same.
-settings_config "$work/config.rtc.ini" '{"fast_boot": true, "rtc_year": 7}' "$firmware_json"
+settings_config "$work/config.rtc.ini" "{\"fast_boot\": true, \"rtc_year\": 7, \"bios\": \"$bios_choice\"}" "$firmware_json"
 if ! native_ram "rtc" '{"fast_boot":true,"rtc_year":7}'; then
 	report "settings:clock" FAIL "native runner error (see tests/work/native.rtc.txt)"
 elif ! run_frontend "rtc" "$work/config.rtc.ini" "$frames"; then
