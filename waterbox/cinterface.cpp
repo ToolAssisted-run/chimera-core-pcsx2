@@ -340,9 +340,10 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetIntValue("EmuCore", "RtcSecond", static_cast<int>(wbx_setting_long("rtc_second", 0)));
 
 	/* Fast boot skips the bios splash. It is a machine difference, so the
-	 * project says which, and the default is the honest one: the machine
-	 * starts where a console starts. */
-	si.SetBoolValue("EmuCore", "EnableFastBoot", wbx_setting_bool("fast_boot", 0) != 0);
+	 * project says which - and it says yes by default: twenty seconds of console
+	 * animation sits at the front of every run made without it, and a project
+	 * that actually wants the splash can ask for it. */
+	si.SetBoolValue("EmuCore", "EnableFastBoot", wbx_setting_bool("fast_boot", 1) != 0);
 }
 
 /* ---------------------------------------------------------------------------
