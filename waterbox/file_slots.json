@@ -1,5 +1,5 @@
 {
-  "_comment": "The core-declared file form for chimera's project wizard: a PlayStation 2 project is one disc. The bios is not here - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "_comment": "The core-declared file form for chimera's project wizard: a PlayStation 2 project is one disc, and whatever the machine is to start with already written on its cards. The bios is not here - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
   "slots": [
     {
       "id": "disc",
@@ -16,6 +16,17 @@
         "gz"
       ],
       "help": "The DVD or CD image. A plain .iso or .bin (2048- or 2352-byte sectors, with or without a .cue beside it), or a compressed one: .chd, .cso, .zso, .gz. A PS2 project with no disc is a console sitting at its own browser, which is a machine worth booting - but the wizard asks for one, because a movie is usually of a game."
+    },
+    {
+      "id": "savedata",
+      "title": "Save data",
+      "min": 0,
+      "max": 3,
+      "formats": [
+        "ps2",
+        "nvm"
+      ],
+      "help": "What the machine starts with already saved: memory cards, and the console's own NVRAM. These are the files Emulator > Export Save Data... writes, put back under the same names - memcard1.ps2, memcard2.ps2, bios.nvm - so a run can continue from where another left off. Each is mounted read-only and pinned by hash, and the movie cites it, so a movie that starts from a saved game is as reproducible as one that starts from a blank card. Leave it empty and the machine boots with blank cards, which is a new console."
     }
   ]
 }

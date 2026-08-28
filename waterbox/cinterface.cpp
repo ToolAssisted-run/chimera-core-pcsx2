@@ -422,6 +422,36 @@ ECL_EXPORT int Init(void)
 	 * slot map at all. Handling only the first is a core that works in a
 	 * project and boots an empty tray everywhere else, which is exactly what
 	 * the first frontend run of this core did. */
+	/* The save data a project starts from, if it brought any.
+	 *
+	 * The files are mounted under their own names and the machine finds them
+	 * that way - the memory cards and the NVRAM each open the name they always
+	 * open, whether the frontend supplied one or not. Nothing here has to load
+	 * them; what this does is REFUSE a file the machine would silently ignore,
+	 * because a project carrying someone's saved game under a name nothing
+	 * reads, booting to a blank card, is worse than one that will not boot. */
+	{
+		static const char* const kKnownSaves[] = { "memcard1.ps2", "memcard2.ps2", "bios.nvm" };
+		char entry[512];
+		const int32_t saves = wbx_slot_count("savedata");
+		for (int32_t i = 0; i < saves; i++)
+		{
+			if (wbx_slot_name("savedata", i, entry, sizeof(entry)) == nullptr)
+				continue;
+			bool known = false;
+			for (const char* known_name : kKnownSaves)
+				if (!strcmp(entry, known_name)) { known = true; break; }
+			if (!known)
+			{
+				snprintf(g_loadError, sizeof(g_loadError),
+					"this machine does not read save data called \"%s\". It reads "
+					"memcard1.ps2, memcard2.ps2 and bios.nvm - the names Export Save "
+					"Data writes.", entry);
+				return 0;
+			}
+		}
+	}
+
 	VMBootParameters boot;
 	char name[512];
 	const char* file = "disc";
