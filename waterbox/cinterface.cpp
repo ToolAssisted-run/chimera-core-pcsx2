@@ -86,6 +86,11 @@ static int g_inputRead;
  * the machine: a state saved while fast-forwarding must not put the machine
  * back into it when it is loaded to be looked at. */
 extern "C" { ECL_INVISIBLE int chimera_render_enabled = 1; }
+
+/* The GS trace switch, read by gs-device.cpp and by the patched
+ * GSRenderer::Merge. ECL_INVISIBLE for the same reason: a diagnostic is not
+ * machine state, and a state saved with it off must not turn it off again. */
+extern "C" { ECL_INVISIBLE int chimera_gs_trace = 0; }
 static bool g_loaded;
 
 /* the wire: one DualShock 2. Order is the frontend's button order and must
@@ -295,25 +300,39 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	 * Measured on the PS2 browser's own menu, a still screen: 0.00 average
 	 * change per frame woven, 3.00 with no deinterlacing at all.
 	 *
-	 * PCSX2's own default is "Automatic", which on a half-height game means a
-	 * MOTION ADAPTIVE deinterlacer: it compares this field with the last three
-	 * and decides, per pixel, what to show. That is the best picture and this
-	 * core will not offer it, because three fields of history live in the
-	 * renderer rather than in the machine, and a movie whose picture depends
-	 * on how you arrived at a frame is not one this project can promise. The
-	 * four that remain read nothing but the current field and the frame buffer
-	 * the previous one left behind - which IS in the savestate, because in
-	 * this core that buffer is guest memory.
+	 * "auto" is the default and asks the MACHINE. A PS2 does not always draw
+	 * fields: plenty of games render whole frames, and putting a whole frame
+	 * through a deinterlacer destroys half of it - the picture then carries one
+	 * row of this frame, one row of the last, forever. That is what this core
+	 * did to Street Fighter EX3 and TimeSplitters until 2026-08-29, and it is
+	 * why the default is no longer a fixed choice.
+	 *
+	 * PCSX2's own "Automatic" reads SMODE2.FFMD, the scanmask, and whether the
+	 * game is deinterlacing itself; it does NOTHING when the answer is whole
+	 * frames and reaches for the MOTION ADAPTIVE deinterlacer when it is
+	 * fields. This core follows that decision exactly, MAD included.
+	 *
+	 * MAD is here, where a first reading of the problem said it could not be.
+	 * It compares this field with the last three and decides per pixel whether
+	 * to weave a line or invent one, and the three fields it remembers live in
+	 * a texture - which on a GPU would be outside the savestate and would make
+	 * a movie's picture depend on how you reached a frame. In THIS core the
+	 * device's textures are the guest's own memory (waterbox/gs-device.cpp), so
+	 * that history is in the state like everything else, and the gate's
+	 * per-frame save/load round-trip is what proves it.
 	 *
 	 * See waterbox/gs-device.cpp for the software renderer's copies of the
 	 * same shaders: a project must draw the same picture whichever renderer it
 	 * chose. */
 	{
-		static const char* const kNames[] = { "weave", "weave-bff", "blend", "bob", "off" };
+		static const char* const kNames[] = { "auto", "adaptive", "adaptive-bff",
+			"weave", "weave-bff", "blend", "bob", "off" };
 		static const GSInterlaceMode kModes[] = {
+			GSInterlaceMode::Automatic,
+			GSInterlaceMode::AdaptiveTFF, GSInterlaceMode::AdaptiveBFF,
 			GSInterlaceMode::WeaveTFF, GSInterlaceMode::WeaveBFF,
 			GSInterlaceMode::BlendTFF, GSInterlaceMode::BobTFF, GSInterlaceMode::Off };
-		const int choice = SettingIndex("deinterlace", kNames, 5, 0);
+		const int choice = SettingIndex("deinterlace", kNames, 8, 0);
 		si.SetIntValue("EmuCore/GS", "deinterlace_mode", static_cast<int>(kModes[choice]));
 	}
 	si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
@@ -421,6 +440,9 @@ ECL_EXPORT int Init(void)
 	 * it would be a core nobody can debug. It goes to stderr, where a gate and a
 	 * bug report can both find it, and only when the project asks. */
 	const bool verbose = wbx_setting_bool("verbose", 0) != 0;
+	/* verbose covers the picture too: how each frame is assembled, and which
+	 * deinterlacer the machine's own display mode led to (gs-device.cpp). */
+	chimera_gs_trace = verbose ? 1 : 0;
 
 	/* Everything the machine is made of is mounted at the root of the guest's
 	 * file system: the bios through the firmware channel, the disc through a

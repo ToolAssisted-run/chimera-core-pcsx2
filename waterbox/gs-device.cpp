@@ -48,6 +48,11 @@
 #include <cmath>
 #include <vector>
 
+/* Set by the "verbose" setting (cinterface.cpp), which owns it because it must
+ * live outside the savestate: a diagnostic switch is not machine state, and a
+ * state saved with tracing off would otherwise turn it off again on load. */
+extern "C" int chimera_gs_trace;
+
 namespace
 {
 	/* ---------------------------------------------------------------------
@@ -129,15 +134,26 @@ namespace
 		std::vector<u8> m_data;
 	};
 
-	/* Set CHIMERA_GS_TRACE to see how a frame is assembled: which display
-	 * circuits are on, and where each lands in the picture. It is how the
-	 * first game's doubled image was traced to PCSX2's adaptive deinterlacer.
+	/* The core's "verbose" setting, or CHIMERA_GS_TRACE in the environment,
+	 * says how a frame is assembled: the machine's display mode, which
+	 * deinterlacer that led to, which display circuits are on, and where each
+	 * lands in the picture. The setting exists because a sandboxed guest cannot
+	 * read the environment - and the environment stays because the native
+	 * reference build is not sandboxed. It is how EX3's every-other-row ghost
+	 * was traced to a deinterlacer running on a game that draws whole frames.
 	 */
 	bool ChimeraGSTrace()
 	{
-		static const bool on = getenv("CHIMERA_GS_TRACE") != nullptr;
-		return on;
+		return chimera_gs_trace != 0 || getenv("CHIMERA_GS_TRACE") != nullptr;
 	}
+}
+
+/* The same switch, for the patched GSRenderer::Merge, which reports the
+ * machine's own display mode and the deinterlacer it led to. */
+extern "C" bool ChimeraGSTraceC() { return ChimeraGSTrace(); }
+
+namespace
+{
 
 	/* A point-sampled scaled copy: the one drawing operation this device
 	 * really performs. Everything else here is a special case of it.
@@ -269,6 +285,187 @@ namespace
 
 				for (int i = 0; i < 4; i++)
 					drow[static_cast<size_t>(dx) * 4 + i] = static_cast<u8>(std::clamp(rgba[i] + 0.5f, 0.0f, 255.0f));
+			}
+		}
+	}
+
+	/* ps_main3: the MAD buffer.
+	 *
+	 * The motion-adaptive deinterlacer needs to remember fields. Its memory is
+	 * a texture twice the height of the picture, holding two BANKS of two
+	 * interleaved fields each; this pass writes the current field into the bank
+	 * the caller names, at the lines whose parity matches. Everything else in
+	 * the bank is left alone, which is how the older fields survive.
+	 */
+	void BlitMadBuffer(ChimeraTexture* src, const GSVector4& sRect, ChimeraTexture* dst,
+		const GSVector4& dRect, const InterlaceConstantBuffer& cb)
+	{
+		if (!src || !dst)
+			return;
+
+		const int idx = static_cast<int>(cb.ZrH.x);
+		const int bank = idx >> 1;
+		const int field = idx & 1;
+		/* The source's height, and the line alignment an odd one needs so that
+		 * bank 1 does not start on the wrong parity (upstream's lofs). */
+		const int vres = static_cast<int>(cb.ZrH.z) >> 1;
+		const int lofs = ((((vres + 1) >> 1) << 1) - vres) & bank;
+
+		const GSVector2i ssize = src->GetSize();
+		const GSVector2i dsize = dst->GetSize();
+		const float sv0 = sRect.y * static_cast<float>(ssize.y);
+		const float sv1 = sRect.w * static_cast<float>(ssize.y);
+		const float su0 = sRect.x * static_cast<float>(ssize.x);
+		const float su1 = sRect.z * static_cast<float>(ssize.x);
+
+		const int dx0 = std::max(static_cast<int>(dRect.x), 0);
+		const int dy0 = std::max(static_cast<int>(dRect.y), 0);
+		const int dx1 = std::min(static_cast<int>(dRect.z), dsize.x);
+		const int dy1 = std::min(static_cast<int>(dRect.w), dsize.y);
+		const float dw = dRect.z - dRect.x;
+		const float dh = dRect.w - dRect.y;
+		if (dx1 <= dx0 || dy1 <= dy0 || dw <= 0.0f || dh <= 0.0f)
+			return;
+
+		for (int dy = dy0; dy < dy1; dy++)
+		{
+			if (((dy + lofs) & 1) != field)
+				continue;   /* discard: this line belongs to the other field */
+
+			const float v = sv0 + (sv1 - sv0) * ((static_cast<float>(dy) + 0.5f - dRect.y) / dh);
+			const int sy = std::clamp(static_cast<int>(v), 0, ssize.y - 1);
+			const u8* srow = src->GetBits() + static_cast<size_t>(sy) * src->GetPitch();
+			u8* drow = dst->GetBits() + static_cast<size_t>(dy) * dst->GetPitch();
+
+			for (int dx = dx0; dx < dx1; dx++)
+			{
+				const float u = su0 + (su1 - su0) * ((static_cast<float>(dx) + 0.5f - dRect.x) / dw);
+				const int sx = std::clamp(static_cast<int>(u), 0, ssize.x - 1);
+				std::memcpy(drow + static_cast<size_t>(dx) * 4, srow + static_cast<size_t>(sx) * 4, 4);
+			}
+		}
+	}
+
+	/* ps_main4: the MAD reconstruction.
+	 *
+	 * For every line the current field does not have, decide between weaving
+	 * the line the previous field left there and inventing one from the lines
+	 * above and below - by asking whether anything MOVED between the two banks.
+	 * Still picture: weave, and the full vertical detail survives. Motion:
+	 * interpolate, and nothing combs.
+	 *
+	 * The arithmetic is upstream's, in 0..255 rather than 0..1, so the
+	 * sensitivity is scaled once and everything else follows.
+	 */
+	void BlitMadReconstruct(ChimeraTexture* src, const GSVector4& sRect, ChimeraTexture* dst,
+		const GSVector4& dRect, const InterlaceConstantBuffer& cb)
+	{
+		if (!src || !dst)
+			return;
+
+		const int idx = static_cast<int>(cb.ZrH.x);
+		const int field = idx & 1;
+		const float thr = cb.ZrH.w * 255.0f;
+
+		const GSVector2i ssize = src->GetSize();
+		const GSVector2i dsize = dst->GetSize();
+		const int dx0 = std::max(static_cast<int>(dRect.x), 0);
+		const int dy0 = std::max(static_cast<int>(dRect.y), 0);
+		const int dx1 = std::min(static_cast<int>(dRect.z), dsize.x);
+		const int dy1 = std::min(static_cast<int>(dRect.w), dsize.y);
+		if (dx1 <= dx0 || dy1 <= dy0)
+			return;
+
+		/* The banks, as a row offset into the source: bank 1 is the lower half.
+		 * upstream's bofs = (0, 0.5) over a texture of twice the height. */
+		const int bofs = ssize.y / 2;
+
+		/* Which bank each of the four samples comes from (upstream's switch on
+		 * idx): t0/t1 are the newer pair, t2/t3 the older. */
+		int o0, o1, o2, o3;
+		switch (idx)
+		{
+			case 1:  o0 = 0;    o1 = 0;    o2 = bofs; o3 = bofs; break;
+			case 2:  o0 = bofs; o1 = 0;    o2 = 0;    o3 = bofs; break;
+			case 3:  o0 = bofs; o1 = bofs; o2 = 0;    o3 = 0;    break;
+			default: o0 = 0;    o1 = bofs; o2 = bofs; o3 = 0;    break;
+		}
+
+		const int lastLine = dsize.y - 1;
+
+		for (int dy = dy0; dy < dy1; dy++)
+		{
+			u8* drow = dst->GetBits() + static_cast<size_t>(dy) * dst->GetPitch();
+			const bool haveIt = (dy & 1) == field;
+			/* The first and last lines have no pair to interpolate from, so
+			 * they are always weaved (upstream's iptr.y bounds test). */
+			const bool edge = (dy <= 0) || (dy >= lastLine);
+
+			for (int dx = dx0; dx < dx1; dx++)
+			{
+				float out[4];
+				if (haveIt)
+				{
+					ReadTexel(src, dx, dy + o0, out);
+				}
+				else
+				{
+					float cn[4];
+					ReadTexel(src, dx, dy + o1, cn);
+					if (edge)
+					{
+						for (int i = 0; i < 4; i++) out[i] = cn[i];
+					}
+					else
+					{
+						float hn[4], ln[4], ho[4], co[4], lo[4];
+						ReadTexel(src, dx, dy - 1 + o0, hn);
+						ReadTexel(src, dx, dy + 1 + o0, ln);
+						ReadTexel(src, dx, dy - 1 + o2, ho);
+						ReadTexel(src, dx, dy + o3, co);
+						ReadTexel(src, dx, dy + 1 + o2, lo);
+
+						/* How much each of the three lines moved between the
+						 * two banks, as the largest of its colour channels. */
+						auto motion = [thr](const float a[4], const float b[4]) {
+							float m = -thr;
+							for (int i = 0; i < 3; i++)
+							{
+								const float d = std::fabs(a[i] - b[i]) - thr;
+								if (d > m) m = d;
+							}
+							return m;
+						};
+						const float mh = motion(hn, ho);
+						const float mc = motion(cn, co);
+						const float ml = motion(ln, lo);
+
+						bool interpolate;
+						if (mh > 0.0f || ml > 0.0f || mc > 0.0f)
+						{
+							interpolate = true;   /* moving: invent the line */
+						}
+						else if (mh != -thr || ml != -thr || mc != -thr)
+						{
+							/* Nearly still. If this field's own line differs
+							 * from its neighbours by more than they differ
+							 * from each other, it is probably not this line. */
+							const float mhln = motion(hn, ln);
+							const float mchn = motion(hn, cn);
+							interpolate = (mhln < 0.0f && mchn >= mhln * 0.90f);
+						}
+						else
+						{
+							interpolate = false;  /* perfectly still: weave */
+						}
+
+						for (int i = 0; i < 4; i++)
+							out[i] = interpolate ? (hn[i] + ln[i]) * 0.5f : cn[i];
+					}
+				}
+
+				for (int i = 0; i < 4; i++)
+					drow[static_cast<size_t>(dx) * 4 + i] = static_cast<u8>(std::clamp(out[i] + 0.5f, 0.0f, 255.0f));
 			}
 		}
 	}
@@ -458,11 +655,15 @@ namespace
 		 * These ARE the deinterlacers, and they have to be the same ones the
 		 * hardware renderer runs or a project would draw two different pictures
 		 * depending on which renderer it chose. They are ports of
-		 * bin/resources/shaders/opengl/interlace.glsl, ps_main0..2, kept in the
-		 * same order and with the same arithmetic; the fourth and fifth
-		 * (motion-adaptive) are deliberately absent, because they read three
-		 * fields of history that no savestate holds. See waterbox.config's
-		 * "deinterlace" setting for what a project may ask for.
+		 * bin/resources/shaders/opengl/interlace.glsl, ps_main0..4, kept in the
+		 * same order and with the same arithmetic.
+		 *
+		 * The motion-adaptive pair (ps_main3/4) IS here, and the reason it can
+		 * be is this device: its textures are the guest's own memory, so the
+		 * three fields of history the deinterlacer remembers are inside the
+		 * savestate like everything else. On a GPU they would not be, which is
+		 * why upstream's own docs treat that history as the renderer's. See
+		 * waterbox.config's "deinterlace" setting.
 		 */
 		void DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
 			ShaderInterlace shader, Filter filter, const InterlaceConstantBuffer& cb) override
@@ -500,10 +701,18 @@ namespace
 					BlitBlend(src, sRect, dst, dRect);
 					return;
 
+				case ShaderInterlace::MAD_BUFFER:
+					/* ps_main3: the current field into one of the two banks. */
+					BlitMadBuffer(src, sRect, dst, dRect, cb);
+					return;
+
+				case ShaderInterlace::MAD_RECONSTRUCT:
+					/* ps_main4: weave where nothing moved, interpolate where
+					 * something did. */
+					BlitMadReconstruct(src, sRect, dst, dRect, cb);
+					return;
+
 				default:
-					/* MAD, which this device does not do. Falling back to a plain
-					 * copy would be a silently different picture from the hardware
-					 * renderer's, so the setting refuses to offer it instead. */
 					BlitScaled(src, sRect, dst, dRect);
 					return;
 			}

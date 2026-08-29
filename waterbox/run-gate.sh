@@ -97,6 +97,7 @@ if [ -z "$bios" ]; then
 	report "bios:ran" SKIP "would prove the EE executed"
 	report "bios:savestate" SKIP "would prove a per-frame state round-trip is lossless"
 	report "bios:turbo" SKIP "would prove an undrawn frame leaves the same machine"
+	report "video:deinterlace" SKIP "would prove the deinterlacer follows the machine's display mode"
 	report "native:determinism" SKIP "would prove the native reference does not wander"
 	report "domains" SKIP "would prove all five memory domains are exposed"
 	report "video:drew" SKIP "would prove the software renderer draws"
@@ -135,19 +136,35 @@ fi
 # on for the second. Everything the EE can see - and every picture of that
 # second half - must be what it would have been.
 #
-# --turbo-settle 1 excuses exactly ONE picture, and it is the interlace that
-# earns it: a PS2 field is woven with the field before it, and the first frame
-# drawn after a gap has nothing to weave with. It converges the very next frame
-# - measured, not assumed - and it is the same one-frame artifact a savestate
-# load produces. Both runs skip the same frame, so nothing else is excused.
-if ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo-settle 1 2>/dev/null | turboDigests > "$work/tnorm.txt"; then
+# --turbo-settle 3 excuses exactly THREE pictures, and the deinterlacer earns
+# them: the motion-adaptive one remembers four fields across two banks, so the
+# frames that resume drawing after a gap are reconstructed from a history that
+# is not there yet. Three is measured, not assumed - two still differ and three
+# matches - and it is the same artifact a savestate load produces. Both runs
+# skip the same frames, so nothing else is excused.
+if ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo-settle 3 2>/dev/null | turboDigests > "$work/tnorm.txt"; then
 	report "bios:turbo" FAIL "drawn run failed"
-elif ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo --turbo-settle 1 2>/dev/null | turboDigests > "$work/turbo.txt"; then
+elif ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo --turbo-settle 3 2>/dev/null | turboDigests > "$work/turbo.txt"; then
 	report "bios:turbo" FAIL "turbo run failed"
 elif cmp -s "$work/tnorm.txt" "$work/turbo.txt"; then
 	report "bios:turbo" PASS "$FRAMES frames, half of them undrawn, same machine and same pictures"
 else
 	report "bios:turbo" FAIL "$(diff "$work/tnorm.txt" "$work/turbo.txt" | tr '\n' ' ' | head -c 120)"
+fi
+
+# The deinterlacer must follow the MACHINE, not a fixed choice. This is the leg
+# that would have caught a core weaving every game: with "auto" (the default),
+# a console reporting FFMD=1 - half-height fields - must reach the adaptive
+# deinterlacer (mode 3), and a console drawing whole frames must reach no
+# deinterlacer at all (mode -1). Only the first case is testable on content that
+# is free to distribute; the trace prints both.
+modes="$(CHIMERA_GS_TRACE=1 "$nat/run-native" "$wd" --frames "$FRAMES" 2>&1 | sed -n 's/^merge: .*FFMD=\([0-9]*\).* -> mode=\(-\?[0-9]*\).*/\1:\2/p' | sort -u)"
+if [ -z "$modes" ]; then
+	report "video:deinterlace" FAIL "the machine never reported a display mode"
+elif [ "$modes" = "1:3" ]; then
+	report "video:deinterlace" PASS "FFMD=1 reaches the adaptive deinterlacer, and nothing else does"
+else
+	report "video:deinterlace" FAIL "FFMD:mode pairs were $(echo "$modes" | tr '\n' ' ')"
 fi
 
 # A hollow pass cannot sneak through: the machine must actually have EXECUTED
