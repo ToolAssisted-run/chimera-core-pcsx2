@@ -27,7 +27,7 @@
 #include <glad/gl.h>
 
 #include "gl-bridge.h"
-#include "generated/gl-bridge-ops.h"
+#include "gl-bridge-ops.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -289,6 +289,12 @@ uintptr_t BRIDGE_ABI chimera_gl_host_dispatch(uintptr_t op, uintptr_t a, uintptr
 			return 1;
 		}
 
+		case GL_OP_LIST_LENGTH:
+			/* How many entry points this host knows. The guest compares it with
+			 * what it was built against and declines a host that is older,
+			 * which it can do safely because the master list is append-only. */
+			return CHIMERA_GL_OP_LIST_LENGTH;
+
 		case GL_OP_CLEAR_TEST:
 		{
 			/* Real work on the real device, and the result handed back: clear
@@ -318,7 +324,7 @@ uintptr_t BRIDGE_ABI chimera_gl_host_dispatch(uintptr_t op, uintptr_t a, uintptr
 		}
 
 		/* the generated cases: one per GL entry point the renderer names */
-#include "generated/gl-bridge-host.inc"
+#include "gl-bridge-host.inc"
 
 		default:
 			fprintf(stderr, "gpu bridge: opcode %ld has no case\n", (long)op);

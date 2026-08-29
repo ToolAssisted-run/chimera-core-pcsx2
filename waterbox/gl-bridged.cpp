@@ -21,15 +21,16 @@
 #include "GS/Renderers/OpenGL/GLContext.h"
 #include "common/Error.h"
 
-#include "gl-bridge.h"
+#include "gl-bridge.h"   /* miniBox source/gl: the shared contract */
 
 #include <glad/gl.h>
 
 #include <algorithm>
 #include <memory>
 
-/* waterbox/generated/gl-bridge-guest.cpp */
-void chimera_gl_install(chimera_gl_bridge_fn bridge);
+/* generated from miniBox's master list; install refuses a host whose list is
+ * shorter than this core was built against */
+bool chimera_gl_install(chimera_gl_bridge_fn bridge);
 void *chimera_gl_lookup(const char *name);
 
 namespace
@@ -106,8 +107,10 @@ extern "C" bool chimera_gl_bridge_start(chimera_gl_bridge_fn bridge)
 	if (!bridge)
 		return false;
 
+	if (!chimera_gl_install(bridge))
+		return false;   /* an older host; the softpipe draws instead */
+
 	g_bridge = bridge;
-	chimera_gl_install(bridge);
 	return true;
 }
 

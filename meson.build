@@ -113,7 +113,10 @@ inc = include_directories(
   'extern/lz4/lib',
   'waterbox',
   'waterbox/generated',
+  # the GPU bridge's shared contract and its generated opcodes
+  mb / 'source/gl',
 )
+
 
 # A guest Mesa turns on PCSX2's OpenGL renderer: see waterbox/gl-osmesa.cpp
 # for what it is and why it is not a GPU.
@@ -144,8 +147,19 @@ if guest_gl
   # host, and the context object PCSX2 asks for. Compiled in whenever the GL
   # renderer is, because it costs nothing until a host offers a callback -
   # chimera_gl_bridged() is false and the softpipe draws.
-  gl_sources += files('waterbox/gl-bridged.cpp',
-    'waterbox/generated/gl-bridge-guest.cpp')
+  # Generated from the SHARED table in miniBox, not from a list of our own:
+  # opcodes are indices into that master list, so what this core means by an
+  # opcode is what every other core and the frontend's host half mean.
+  # (mb / 'source/gl/README.md' says why that has to be true.)
+  gl_bridge_guest = custom_target('gl-bridge-guest',
+    output: ['gl-bridge-guest.cpp', 'gl-bridge-ops.h', 'gl-bridge-host.inc'],
+    input: files('waterbox/gl-entry-points.txt'),
+    command: [find_program('python3'), mb / 'source/gl/gen-gl-bridge.py',
+      meson.current_source_dir() / fc / '3rdparty/glad/include/glad/gl.h',
+      mb / 'source/gl/gl-entry-points.txt',
+      '@OUTDIR@', '--only', '@INPUT@'])
+
+  gl_sources += [files('waterbox/gl-bridged.cpp'), gl_bridge_guest[0]]
 endif
 
 deps_lib = static_library('pcsx2-deps', dep_sources, include_directories: inc)
@@ -231,10 +245,20 @@ else
     # glad on the host too: Windows' opengl32.dll exports OpenGL 1.1 and
     # nothing else, so everything past it is fetched at runtime - and loading
     # the same way on Linux keeps ONE dispatcher rather than two.
-    bridge_sources = files('waterbox/gl-host.c', fc / '3rdparty/glad/src/gl.c')
+    gl_bridge_host = custom_target('gl-bridge-host',
+      output: ['gl-bridge-host.inc', 'gl-bridge-ops.h', 'gl-bridge-guest.cpp'],
+      command: [find_program('python3'), mb / 'source/gl/gen-gl-bridge.py',
+        meson.current_source_dir() / fc / '3rdparty/glad/include/glad/gl.h',
+        mb / 'source/gl/gl-entry-points.txt', '@OUTDIR@'])
+
+    bridge_sources = [files('waterbox/gl-host.c', fc / '3rdparty/glad/src/gl.c'),
+      gl_bridge_host[0]]
     bridge_args = ['-DCHIMERA_GL_BRIDGE',
       '-I' + meson.current_source_dir() / 'waterbox',
+      '-I' + mb / 'source/gl',
       '-I' + meson.current_source_dir() / fc / '3rdparty/glad/include']
+    # the generated ops header lands in the target's private dir
+    bridge_args += ['-I' + meson.current_build_dir()]
     bridge_deps = [meson.get_compiler('c').find_library('EGL', required: true)]
   endif
 
