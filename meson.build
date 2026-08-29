@@ -42,7 +42,9 @@ defs = [
   # The software renderer generates its scanline routines at runtime through
   # xbyak. A sandbox would rather not host a code generator, and does not have
   # to: GSDrawScanline::CDrawScanline is the C++ path this build takes.
-  '-DCHIMERA_NO_JIT_RASTERIZER', '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM', '-DCHIMERA_MEMCARD_IN_MEMORY', '-DCHIMERA_NVRAM_IN_MEMORY', '-DCHIMERA_LAG_DETECTION',
+  # -Djit_rasterizer=true takes the other one, for a NATIVE reference that says
+  # whether the two agree (they must; run-gate.sh's rasteriser leg checks it).
+  '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM', '-DCHIMERA_MEMCARD_IN_MEMORY', '-DCHIMERA_NVRAM_IN_MEMORY', '-DCHIMERA_LAG_DETECTION',
   # zstd ships hand-written amd64 assembly for one decode loop. The C path is
   # the same bytes out and one source language fewer in a cross-built guest.
   '-DZSTD_DISABLE_ASM',
@@ -63,6 +65,10 @@ defs = [
   '-DHAVE_STRING_H=1',
 
 ]
+
+if not get_option('jit_rasterizer')
+  defs += '-DCHIMERA_NO_JIT_RASTERIZER'
+endif
 # musl carries neither of these glibc extensions, and glibc has both - so this
 # is the one place the two flavors are compiled differently, and it is about
 # the C LIBRARY rather than about the machine. gettid becomes the sandbox's own

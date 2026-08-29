@@ -5,3 +5,6 @@ option('mesa_guest_dir', type: 'string', value: '',
 
 option('gl_bridge', type: 'boolean', value: false,
   description: 'EXPERIMENT: let the sandboxed renderer drive a REAL GPU on the host, for speed. The GPU is outside the sandbox, outside the savestate and different on every machine, so a movie recorded this way carries no promise that it replays. Builds the guest wrappers into the core and the host half into run-wbx; the softpipe is still there and still the default.')
+
+option('jit_rasterizer', type: 'boolean', value: false,
+  description: 'DIAGNOSTIC, native builds only: draw the software renderer\'s scanlines with PCSX2\'s own code generator instead of its C++ fallback. The sandbox cannot host a code generator, so the shipped core always takes the C++ path - and a reference that takes the other one is how you find out whether the two agree, which they must. See run-gate.sh\'s rasteriser leg.')

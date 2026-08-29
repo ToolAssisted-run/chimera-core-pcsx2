@@ -98,6 +98,7 @@ if [ -z "$bios" ]; then
 	report "bios:savestate" SKIP "would prove a per-frame state round-trip is lossless"
 	report "bios:turbo" SKIP "would prove an undrawn frame leaves the same machine"
 	report "video:deinterlace" SKIP "would prove the deinterlacer follows the machine's display mode"
+	report "video:rasterisers" SKIP "would prove the C++ rasteriser draws what the code generator draws"
 	report "native:determinism" SKIP "would prove the native reference does not wander"
 	report "domains" SKIP "would prove all five memory domains are exposed"
 	report "video:drew" SKIP "would prove the software renderer draws"
@@ -150,6 +151,31 @@ elif cmp -s "$work/tnorm.txt" "$work/turbo.txt"; then
 	report "bios:turbo" PASS "$FRAMES frames, half of them undrawn, same machine and same pictures"
 else
 	report "bios:turbo" FAIL "$(diff "$work/tnorm.txt" "$work/turbo.txt" | tr '\n' ' ' | head -c 120)"
+fi
+
+# THE TWO RASTERISERS MUST AGREE. PCSX2 draws the software renderer's scanlines
+# with a code generator; a sandbox cannot host one, so the shipped core takes
+# the C++ fallback instead - a path far fewer people run, and one that had a
+# real bug in it (negative colour deltas saturated instead of truncating, which
+# shredded every Gouraud-shaded surface into four-pixel bands). Nothing in this
+# gate could see it, because both flavors took the same wrong path.
+#
+# So: if a reference built with -Djit_rasterizer=true is present, its digests
+# must equal the ordinary build's, to the byte. It is a native-only comparison
+# because the code generator only runs outside the sandbox.
+jitnat="${CHIMERA_PS2_JIT_BUILD:-$root/build/meson-jit}"
+if [ -x "$jitnat/run-native" ]; then
+	if ! "$nat/run-native" "$wd" --frames "$FRAMES" 2>/dev/null | digests > "$work/ras.cpp.txt"; then
+		report "video:rasterisers" FAIL "the C++ rasteriser run failed"
+	elif ! "$jitnat/run-native" "$wd" --frames "$FRAMES" 2>/dev/null | digests > "$work/ras.jit.txt"; then
+		report "video:rasterisers" FAIL "the code-generator run failed"
+	elif cmp -s "$work/ras.cpp.txt" "$work/ras.jit.txt"; then
+		report "video:rasterisers" PASS "$FRAMES frames, the C++ path draws what the code generator draws"
+	else
+		report "video:rasterisers" FAIL "$(diff "$work/ras.cpp.txt" "$work/ras.jit.txt" | tr '\n' ' ' | head -c 120)"
+	fi
+else
+	report "video:rasterisers" SKIP "no -Djit_rasterizer=true build to compare against"
 fi
 
 # The deinterlacer must follow the MACHINE, not a fixed choice. This is the leg

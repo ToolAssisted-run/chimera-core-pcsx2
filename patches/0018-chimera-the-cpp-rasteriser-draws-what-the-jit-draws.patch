@@ -1,0 +1,62 @@
+diff --git a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+--- a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
++++ b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+@@ -171,6 +171,28 @@
+ 	sel.zequal = global.sel.zequal;
+ 	sel.notest = global.sel.notest;
+ 
++	/* chimera (diagnostic, native builds only): upstream's USE_C_DRAW_SCANLINE
++	   can route the SCANLINE to the C++ path per selector, but nothing could
++	   route the SETUP, and the setup is the other half of what the shipped
++	   sandboxed build runs. USE_C_SETUP_PRIM=1 does that, which is how the two
++	   halves were told apart. */
++	if (const char* csp = getenv("USE_C_SETUP_PRIM"))
++	{
++		/* "1" for every selector, or a comma-separated list of selector keys. */
++		bool use = (csp[0] == '1' && csp[1] == 0);
++		if (!use)
++		{
++			char want[32];
++			snprintf(want, sizeof want, "%016" PRIX64, global.sel.key);
++			use = strstr(csp, want) != nullptr;
++		}
++		if (use)
++		{
++			data.setup_prim = &GSDrawScanline::CSetupPrim;
++			return true;
++		}
++	}
++
+ 	return (data.setup_prim = m_sp_map[sel]) != nullptr;
+ #else
+ 	data.setup_prim = &GSDrawScanline::CSetupPrim;
+@@ -345,8 +367,16 @@
+ 
+ 			for (int i = 0; i < vlen; i++)
+ 			{
+-				VectorI r = (VectorI(dr * load_shift(i)) & mask16).ps32();
+-				VectorI b = (VectorI(db * load_shift(i)) & mask16).ps32();
++				/* chimera: pu32, not ps32. The mask above has already reduced
++				   the delta to its low 16 bits, so the pack must TRUNCATE - and
++				   packusdw does, while packssdw saturates: a delta of -8 arrives
++				   as 0x0000FFF8, which signed packing turns into 0x7FFF. Every
++				   negative colour delta became the largest positive one, which
++				   is why a Gouraud-shaded surface came out in four-pixel bands.
++				   The code generator does exactly this, and its own comment
++				   ("& mask16).pu32()") is the line the C++ path meant to be. */
++				VectorI r = (VectorI(dr * load_shift(i)) & mask16).pu32();
++				VectorI b = (VectorI(db * load_shift(i)) & mask16).pu32();
+ 
+ 				local.d[i].rb = r.upl16(b);
+ 			}
+@@ -356,8 +386,8 @@
+ 
+ 			for (int i = 0; i < vlen; i++)
+ 			{
+-				VectorI g = (VectorI(dg * load_shift(i)) & mask16).ps32();
+-				VectorI a = (VectorI(da * load_shift(i)) & mask16).ps32();
++				VectorI g = (VectorI(dg * load_shift(i)) & mask16).pu32();   /* see above */
++				VectorI a = (VectorI(da * load_shift(i)) & mask16).pu32();
+ 
+ 				local.d[i].ga = g.upl16(a);
+ 			}
