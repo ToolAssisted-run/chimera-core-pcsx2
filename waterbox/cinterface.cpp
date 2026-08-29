@@ -75,6 +75,17 @@ static int g_videoHeight = 448;
 static int16_t g_soundOut[MAX_SAMPLES * 2];
 static int g_nsamples;
 static int g_inputRead;
+
+/* Turbo. The patched GSRenderer::VSync reads this and skips the display stage -
+ * the PCRTC merge and the deinterlace - while it is 0. The GS itself is
+ * untouched: it consumes its FIFO and writes local memory exactly as it would
+ * have, because that is memory the machine can read back.
+ *
+ * extern "C" and not static because the patched upstream file names it.
+ * ECL_INVISIBLE because it is the frontend's policy for the moment, not part of
+ * the machine: a state saved while fast-forwarding must not put the machine
+ * back into it when it is loaded to be looked at. */
+extern "C" { ECL_INVISIBLE int chimera_render_enabled = 1; }
 static bool g_loaded;
 
 /* the wire: one DualShock 2. Order is the frontend's button order and must
@@ -572,6 +583,12 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
  * presented leaves the last one standing, which is what the hardware does too:
  * the video circuits keep scanning out whatever is in the frame buffer.
  */
+/* Turbo (optional guest ABI group): while off the core must produce no picture
+ * and must otherwise be exactly the machine it would have been. run-gate.sh's
+ * turbo leg is the proof - half a run undrawn leaves the same machine, and the
+ * same pictures once drawing resumes. */
+ECL_EXPORT void SetRenderingEnabled(int on) { chimera_render_enabled = on != 0; }
+
 ECL_EXPORT uint32_t* GetVideoBgra(void)
 {
 	const u8* bits = nullptr;

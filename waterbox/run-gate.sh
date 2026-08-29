@@ -45,6 +45,10 @@ done
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 digests() { grep -E '^(frames|vsync|videoHash|audioHash|lagFrames|domain\[)'; }
+# What a turbo run can be held to: everything except the whole-run video hash,
+# which a run that skipped the first half cannot possibly match - the second
+# half it did draw is compared instead.
+turboDigests() { grep -E '^(frames|vsync|tailVideoHash|audioHash|lagFrames|domain\[)'; }
 
 ok=0
 failed=0
@@ -92,6 +96,7 @@ if [ -z "$bios" ]; then
 	report "bios:equivalence" SKIP "no bios: put one in tests/roms/bios/ or set CHIMERA_PS2_BIOS"
 	report "bios:ran" SKIP "would prove the EE executed"
 	report "bios:savestate" SKIP "would prove a per-frame state round-trip is lossless"
+	report "bios:turbo" SKIP "would prove an undrawn frame leaves the same machine"
 	report "native:determinism" SKIP "would prove the native reference does not wander"
 	report "domains" SKIP "would prove all five memory domains are exposed"
 	report "video:drew" SKIP "would prove the software renderer draws"
@@ -124,6 +129,25 @@ elif cmp -s "$work/nat.txt" "$work/box.txt"; then
 	report "bios:equivalence" PASS "$FRAMES frames of $(basename "$bios"), native == waterboxed"
 else
 	report "bios:equivalence" FAIL "$(diff "$work/nat.txt" "$work/box.txt" | tr '\n' ' ' | head -c 120)"
+fi
+
+# Turbo: the display stage switched off for the first half of the run and back
+# on for the second. Everything the EE can see - and every picture of that
+# second half - must be what it would have been.
+#
+# --turbo-settle 1 excuses exactly ONE picture, and it is the interlace that
+# earns it: a PS2 field is woven with the field before it, and the first frame
+# drawn after a gap has nothing to weave with. It converges the very next frame
+# - measured, not assumed - and it is the same one-frame artifact a savestate
+# load produces. Both runs skip the same frame, so nothing else is excused.
+if ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo-settle 1 2>/dev/null | turboDigests > "$work/tnorm.txt"; then
+	report "bios:turbo" FAIL "drawn run failed"
+elif ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$FRAMES" --turbo --turbo-settle 1 2>/dev/null | turboDigests > "$work/turbo.txt"; then
+	report "bios:turbo" FAIL "turbo run failed"
+elif cmp -s "$work/tnorm.txt" "$work/turbo.txt"; then
+	report "bios:turbo" PASS "$FRAMES frames, half of them undrawn, same machine and same pictures"
+else
+	report "bios:turbo" FAIL "$(diff "$work/tnorm.txt" "$work/turbo.txt" | tr '\n' ' ' | head -c 120)"
 fi
 
 # A hollow pass cannot sneak through: the machine must actually have EXECUTED

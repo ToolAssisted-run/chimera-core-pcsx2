@@ -26,6 +26,7 @@ extern int GetVideoHeight(void);
 extern int16_t *GetAudio(void);
 extern int GetAudioSampleCount(void);
 extern int InputWasRead(void);
+extern void SetRenderingEnabled(int on);
 extern int GetVsyncNumerator(void);
 extern int GetVsyncDenominator(void);
 extern int GetMemoryDomainCount(void);
@@ -93,6 +94,7 @@ int main(int argc, char **argv)
 		.savedata_size = GetSaveDataFileSize,
 		.savedata_buffer = GetSaveDataFileBuffer,
 		.pre_frame = NULL,
+		.set_rendering = SetRenderingEnabled,
 	};
 	/* The run is over, and the machine is about to be discarded. PCSX2's memory
 	 * mappings outlive main() and assert on their way out if a VM was never

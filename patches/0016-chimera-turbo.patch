@@ -1,0 +1,38 @@
+diff --git a/pcsx2/GS/Renderers/Common/GSRenderer.cpp b/pcsx2/GS/Renderers/Common/GSRenderer.cpp
+--- a/pcsx2/GS/Renderers/Common/GSRenderer.cpp
++++ b/pcsx2/GS/Renderers/Common/GSRenderer.cpp
+@@ -577,6 +577,11 @@
+ 	ImGuiManager::NewFrame();
+ }
+ 
++/* chimera: 0 while the frontend is fast-forwarding; defined by the ABI layer
++   (waterbox/cinterface.cpp) in memory the savestate does not cover, because it
++   is the frontend's policy for the moment and not part of the machine. */
++extern "C" int chimera_render_enabled;
++
+ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
+ {
+ 	if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
+@@ -630,6 +635,22 @@
+ 		}
+ 	}
+ 
++	/* chimera: turbo. Everything the PS2 can see has already happened by the
++	   time VSync is called - the GS has consumed its FIFO and local memory holds
++	   whatever the game drew. What is left is the DISPLAY stage: Merge composes
++	   the two PCRTC circuits, deinterlaces, and hands the result to whoever is
++	   looking. Nobody is, so it does not run, and GetCurrent() keeps the last
++	   picture that was composed - which is what a television does with a frame
++	   that never arrives. The tail of this function is snapshots, GS dumps and
++	   video capture, none of which this core uses. */
++	if (!chimera_render_enabled)
++	{
++		m_last_draw_n = s_n;
++		m_last_transfer_n = s_transfer_n;
++		g_perfmon.EndFrame(idle_frame);
++		return;
++	}
++
+ 	const bool blank_frame = !Merge(field);
+ 
+ 	m_last_draw_n = s_n;
