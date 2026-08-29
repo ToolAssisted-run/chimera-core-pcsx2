@@ -139,6 +139,13 @@ if guest_gl
     command: [find_program('python3'), files('waterbox/gen-shaders.py'),
       meson.current_source_dir() / fc / 'bin/resources', '@OUTPUT@'])
   gl_sources = [shaders_cpp, files('waterbox/gl-osmesa.cpp')]
+
+  # The GPU bridge's guest half: 147 wrappers that hand each GL call to the
+  # host, and the context object PCSX2 asks for. Compiled in whenever the GL
+  # renderer is, because it costs nothing until a host offers a callback -
+  # chimera_gl_bridged() is false and the softpipe draws.
+  gl_sources += files('waterbox/gl-bridged.cpp',
+    'waterbox/generated/gl-bridge-guest.cpp')
 endif
 
 deps_lib = static_library('pcsx2-deps', dep_sources, include_directories: inc)
@@ -211,9 +218,30 @@ else
     dependencies: [threads, dl, m])
 
   mbhost = mb / 'build/meson-cpp/source/host'
+
+  # The GPU bridge's HOST half (-Dgl_bridge=true): a real GL context outside the
+  # sandbox, and the dispatcher a guest reaches it through. It is the only part
+  # of this core that depends on the machine it runs on, so it is opt-in and it
+  # lives in the runner rather than in the core package - a .chimeraCore is a
+  # guest binary, and this is host code by definition.
+  bridge_sources = []
+  bridge_args = []
+  bridge_deps = []
+  if get_option('gl_bridge')
+    # glad on the host too: Windows' opengl32.dll exports OpenGL 1.1 and
+    # nothing else, so everything past it is fetched at runtime - and loading
+    # the same way on Linux keeps ONE dispatcher rather than two.
+    bridge_sources = files('waterbox/gl-host.c', fc / '3rdparty/glad/src/gl.c')
+    bridge_args = ['-DCHIMERA_GL_BRIDGE',
+      '-I' + meson.current_source_dir() / 'waterbox',
+      '-I' + meson.current_source_dir() / fc / '3rdparty/glad/include']
+    bridge_deps = [meson.get_compiler('c').find_library('EGL', required: true)]
+  endif
+
   # The sandbox runner is not part of the machine: it drives core.wbx from
   # outside, so it wants neither the machine's includes nor its shim.
-  executable('run-wbx', files('waterbox/run-wbx.c'),
-    c_args: ['-I' + mb / 'source/host', '-I' + meson.current_source_dir() / 'waterbox/generated'],
+  executable('run-wbx', files('waterbox/run-wbx.c') + bridge_sources,
+    c_args: ['-I' + mb / 'source/host', '-I' + meson.current_source_dir() / 'waterbox/generated'] + bridge_args,
+    dependencies: bridge_deps,
     link_args: [mbhost / 'libminiboxhost.so', '-Wl,-rpath,' + mbhost])
 endif

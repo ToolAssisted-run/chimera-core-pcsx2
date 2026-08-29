@@ -49,6 +49,13 @@ typedef uintptr_t (MB_GUEST_ABI *ptrfn_i32)(int32_t);
 typedef int64_t (MB_GUEST_ABI *i64fn_i32)(int32_t);
 
 static mb_host *g_host;
+#ifdef CHIMERA_GL_BRIDGE
+int chimera_gl_host_init(char *err, int errlen);
+const char *chimera_gl_host_description(void);
+uintptr_t chimera_gl_host_dispatch(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+typedef void (*setfn_v)(uint64_t);
+#endif
+
 static intfn g_Init;
 static ptrfn g_GetLoadError;
 static setfn g_SetButton;
@@ -209,6 +216,41 @@ int main(int argc, char **argv)
 	g_GetSaveDataFileName = (ptrfn_i32)proc(g_host, "GetSaveDataFileName");
 	g_GetSaveDataFileSize = (i64fn_i32)proc(g_host, "GetSaveDataFileSize");
 	g_GetSaveDataFileBuffer = (ptrfn_i32)proc(g_host, "GetSaveDataFileBuffer");
+
+	/* The GPU bridge (experiment; see waterbox/gl-bridge.h). Off unless
+	 * CHIMERA_GPU=1 asks for it, and even then a machine with no usable driver
+	 * simply carries on with the softpipe: this is meant to be faster, not
+	 * required. It must be handed over BEFORE Init, because Init is where the
+	 * renderer is chosen. */
+#ifdef CHIMERA_GL_BRIDGE
+	{
+		const char *want = getenv("CHIMERA_GPU");
+		if (want && strcmp(want, "0") != 0)
+		{
+			char glerr[256] = "";
+			if (chimera_gl_host_init(glerr, sizeof glerr) != 0)
+			{
+				fprintf(stderr, "gpu bridge: no context (%s); the softpipe is unaffected\n", glerr);
+			}
+			else
+			{
+				setfn_v set_bridge = (setfn_v)proc(g_host, "SetGpuBridge");
+				uintptr_t guest_addr = 0;
+				wbx_get_callback_addr(g_host, (mb_external_callback)chimera_gl_host_dispatch, 0, &r);
+				guest_addr = r.data;
+				if (!guest_addr || !set_bridge)
+				{
+					fprintf(stderr, "gpu bridge: could not register the callback\n");
+				}
+				else
+				{
+					fprintf(stderr, "gpu bridge: %s\n", chimera_gl_host_description());
+					set_bridge((uint64_t)guest_addr);
+				}
+			}
+		}
+	}
+#endif
 
 	struct gate_core c = {
 		.init = core_init,

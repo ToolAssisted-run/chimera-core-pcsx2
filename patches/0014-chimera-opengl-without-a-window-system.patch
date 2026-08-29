@@ -1,8 +1,8 @@
 diff --git a/pcsx2/GS/Renderers/OpenGL/GLContext.cpp b/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
-index 1d68df1..43586bc 100644
+index 1d68df1..6e97252 100644
 --- a/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
 +++ b/pcsx2/GS/Renderers/OpenGL/GLContext.cpp
-@@ -3,7 +3,12 @@
+@@ -3,7 +3,17 @@
  
  #include "GS/Renderers/OpenGL/GLContext.h"
  
@@ -12,17 +12,23 @@ index 1d68df1..43586bc 100644
 +// implementation that rasterises in plain C. See waterbox/gl-osmesa.cpp.
 +#if defined(CHIMERA_GUEST_GL)
 +std::unique_ptr<GLContext> ChimeraCreateGLContext(const WindowInfo& wi, Error* error);
++// ...or a real GPU on the other side of the sandbox wall, when the host offered
++// one and the project asked for it. See waterbox/gl-bridge.h for what that
++// costs: the GPU is outside the savestate and outside this core's determinism.
++std::unique_ptr<GLContext> ChimeraCreateBridgedGLContext(const WindowInfo& wi, Error* error);
++extern "C" bool chimera_gl_bridged();
 +#elif defined(_WIN32)
  #include "GS/Renderers/OpenGL/GLContextWGL.h"
  #else // Linux
  #ifdef X11_API
-@@ -42,7 +47,9 @@ std::unique_ptr<GLContext> GLContext::Create(const WindowInfo& wi, Error* error)
+@@ -42,7 +52,10 @@ std::unique_ptr<GLContext> GLContext::Create(const WindowInfo& wi, Error* error)
  
  	std::unique_ptr<GLContext> context;
  	Error local_error;
 -#if defined(_WIN32)
 +#if defined(CHIMERA_GUEST_GL)
-+	context = ChimeraCreateGLContext(wi, error);
++	context = chimera_gl_bridged() ? ChimeraCreateBridgedGLContext(wi, error)
++	                               : ChimeraCreateGLContext(wi, error);
 +#elif defined(_WIN32)
  	context = GLContextWGL::Create(wi, vlist, error);
  #else // Linux

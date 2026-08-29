@@ -107,6 +107,14 @@ static const char* const MEMCARD_NAME[2] = {"memcard1.ps2", "memcard2.ps2"};
  * names it after the bios file, and so does this. */
 static const char* const NVRAM_NAME = "bios.nvm";
 
+/* The GPU bridge (experiment; see waterbox/gl-bridge.h). Only where there is a
+ * GL renderer to drive: the native reference build has the software rasteriser
+ * and nothing else, so there is no GPU for it to be offered. */
+#ifdef CHIMERA_GUEST_GL
+typedef uint64_t (*chimera_gl_bridge_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+extern "C" bool chimera_gl_bridge_start(chimera_gl_bridge_fn_t bridge);
+#endif
+
 extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height);
@@ -238,7 +246,12 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	{
 		char value[16] = "software";
 		wbx_setting_str("renderer", value, sizeof(value));
-		if (!strcmp(value, "opengl"))
+		/* "opengl-hw" asks for a real GPU, and gets one only if the host
+		 * offered a bridge before Init. When it did not - no context, an old
+		 * driver, a frontend that does not do this - the softpipe draws and the
+		 * machine is the deterministic one. Silently, on purpose: a project
+		 * that cannot have a GPU today should still run. */
+		if (!strcmp(value, "opengl") || !strcmp(value, "opengl-hw"))
 			gsRenderer = GSRendererType::OGL;
 	}
 #endif
@@ -701,5 +714,26 @@ ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i)
 	SaveData item;
 	return SaveDataAt(i, &item) ? item.data : nullptr;
 }
+
+/* ---------------------------------------------------------------------------
+ * The GPU bridge (experiment; see waterbox/gl-bridge.h).
+ *
+ * The host registers one callback with the sandbox and hands its guest-visible
+ * address here BEFORE Init, because the renderer is chosen during Init and the
+ * choice depends on whether a GPU is on offer. Without this call - which is
+ * every ordinary run - the softpipe draws and nothing here is entered.
+ *
+ * A machine drawn this way is not the deterministic one. The GPU is outside the
+ * sandbox, outside the savestate, and different on every machine; a movie
+ * recorded against it carries no promise that it replays. That is the trade the
+ * setting names, and it is the frontend's job to say so out loud.
+ */
+#ifdef CHIMERA_GUEST_GL
+ECL_EXPORT void SetGpuBridge(uint64_t addr)
+{
+	if (!chimera_gl_bridge_start((chimera_gl_bridge_fn_t)addr))
+		fprintf(stderr, "chimera: the GPU bridge was offered and refused\n");
+}
+#endif
 
 } /* extern "C" */

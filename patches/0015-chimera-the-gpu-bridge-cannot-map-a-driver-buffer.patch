@@ -1,0 +1,30 @@
+diff --git a/pcsx2/GS/Renderers/OpenGL/GLStreamBuffer.cpp b/pcsx2/GS/Renderers/OpenGL/GLStreamBuffer.cpp
+index f246bb5..23d0f38 100644
+--- a/pcsx2/GS/Renderers/OpenGL/GLStreamBuffer.cpp
++++ b/pcsx2/GS/Renderers/OpenGL/GLStreamBuffer.cpp
+@@ -3,6 +3,9 @@
+ 
+ #include "GS/Renderers/OpenGL/GLStreamBuffer.h"
+ 
++// chimera: waterbox/gl-bridged.cpp - true only when a host GPU is driving
++extern "C" bool chimera_gl_bridged();
++
+ #include "common/BitUtils.h"
+ #include "common/AlignedMalloc.h"
+ #include "common/Assertions.h"
+@@ -313,7 +316,14 @@ namespace
+ std::unique_ptr<GLStreamBuffer> GLStreamBuffer::Create(GLenum target, u32 size)
+ {
+ 	std::unique_ptr<GLStreamBuffer> buf;
+-	if (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage)
++
++	// chimera: not when the GPU is on the other side of a sandbox wall.
++	// Persistent mapping hands the caller a pointer into the DRIVER's memory,
++	// and a sandboxed guest cannot read one - the sandbox stops it, correctly.
++	// The paths below keep their own buffer and upload from it, which is a copy
++	// the mapped path avoids and the only shape that can cross this boundary.
++	if (!chimera_gl_bridged()
++		&& (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage))
+ 	{
+ 		buf = BufferStorageStreamBuffer::Create(target, size);
+ 		if (buf)
