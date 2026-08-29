@@ -95,6 +95,7 @@ if [ -z "$bios" ]; then
 	report "native:determinism" SKIP "would prove the native reference does not wander"
 	report "domains" SKIP "would prove all five memory domains are exposed"
 	report "video:drew" SKIP "would prove the software renderer draws"
+	report "video:steady" SKIP "would prove the two fields are put back together"
 	report "input:shaped" SKIP "would prove the machine reads its pad"
 	report "input:lag" SKIP "would prove lag frames are counted"
 	report "savedata:exports" SKIP "would prove the cards and NVRAM leave through the channel"
@@ -184,6 +185,35 @@ elif [ "$drawn" != "$boxdrawn" ]; then
 	report "video:drew" FAIL "native and sandbox drew different pictures"
 else
 	report "video:drew" PASS "the software renderer drew, and the sandbox drew the same"
+fi
+
+# ---- the picture holds still ------------------------------------------------
+# A PS2 in an interlaced mode hands over one FIELD per frame: half an image,
+# the other half arriving next time. Put the halves back where they belong and
+# a slow scene barely changes between frames; hand each field over stretched
+# instead - which is what this core used to do - and the whole picture climbs
+# two scanlines and falls back, every frame, forever.
+#
+# No hash can see that: every frame differs from the last either way. So the
+# question is asked in pixels, and asked RELATIVELY - the same 50 frames, woven
+# and not woven - because the number itself belongs to whichever bios and
+# animation happen to be here.
+motion() {
+	local mode="$1" dir="$work/motion.$1"
+	rm -rf "$dir"; mkdir -p "$dir"
+	printf '{"deinterlace":"%s"}' "$mode" > "$wd/settings"
+	CHIMERA_SHOT_DIR="$dir" CHIMERA_SHOT_FROM=150 		"$nat/run-native" "$wd" --frames 200 >/dev/null 2>&1
+	python3 "$here/tests/frame-motion.py" "$dir" 2>/dev/null
+}
+woven="$(motion weave)"
+plain="$(motion off)"
+printf '{}' > "$wd/settings"
+if [ -z "$woven" ] || [ -z "$plain" ]; then
+	report "video:steady" FAIL "could not measure frame-to-frame motion"
+elif ! awk -v a="$woven" -v b="$plain" 'BEGIN { exit !(b > a * 3) }'; then
+	report "video:steady" FAIL "woven moves $woven per frame, unwoven $plain - the fields are not being put back"
+else
+	report "video:steady" PASS "woven $woven per frame against $plain unwoven: the fields go back where they belong"
 fi
 
 # ---- input -----------------------------------------------------------------

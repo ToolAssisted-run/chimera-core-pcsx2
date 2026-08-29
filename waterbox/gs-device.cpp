@@ -45,6 +45,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <vector>
 
 namespace
@@ -186,6 +187,144 @@ namespace
 		}
 	}
 
+	/* Reads one texel, clamped, as RGBA8. The interlace shaders are the only
+	 * thing here that has to look at a pixel rather than copy it. */
+	inline void ReadTexel(const ChimeraTexture* src, int x, int y, float out[4])
+	{
+		const GSVector2i size = src->GetSize();
+		x = std::clamp(x, 0, size.x - 1);
+		y = std::clamp(y, 0, size.y - 1);
+		const u8* p = src->GetBits() + static_cast<size_t>(y) * src->GetPitch() + static_cast<size_t>(x) * 4;
+		for (int i = 0; i < 4; i++) out[i] = static_cast<float>(p[i]);
+	}
+
+	/* A scaled copy that can sample bilinearly in Y and can write only the
+	 * lines of one field.
+	 *
+	 * fieldParity >= 0 writes only destination lines whose low bit equals it
+	 * and leaves the rest alone (the weave shader's `discard`); -1 writes every
+	 * line. bilinear follows upstream's Filter argument, which is Nearest for
+	 * weave and Bilinear for bob.
+	 */
+	void BlitFiltered(ChimeraTexture* src, const GSVector4& sRect, ChimeraTexture* dst,
+		const GSVector4& dRect, bool bilinear, int fieldParity)
+	{
+		if (!src || !dst)
+			return;
+		if (ChimeraTexture::BytesPerPixel(src->GetFormat()) != 4
+			|| ChimeraTexture::BytesPerPixel(dst->GetFormat()) != 4)
+		{
+			BlitScaled(src, sRect, dst, dRect);
+			return;
+		}
+
+		const GSVector2i ssize = src->GetSize();
+		const GSVector2i dsize = dst->GetSize();
+		const float su0 = sRect.x * static_cast<float>(ssize.x);
+		const float sv0 = sRect.y * static_cast<float>(ssize.y);
+		const float su1 = sRect.z * static_cast<float>(ssize.x);
+		const float sv1 = sRect.w * static_cast<float>(ssize.y);
+
+		const int dx0 = std::max(static_cast<int>(dRect.x), 0);
+		const int dy0 = std::max(static_cast<int>(dRect.y), 0);
+		const int dx1 = std::min(static_cast<int>(dRect.z), dsize.x);
+		const int dy1 = std::min(static_cast<int>(dRect.w), dsize.y);
+		const float dw = dRect.z - dRect.x;
+		const float dh = dRect.w - dRect.y;
+		if (dx1 <= dx0 || dy1 <= dy0 || dw <= 0.0f || dh <= 0.0f)
+			return;
+
+		for (int dy = dy0; dy < dy1; dy++)
+		{
+			if (fieldParity >= 0 && (dy & 1) != fieldParity)
+				continue;   /* discard: this line belongs to the other field */
+
+			const float v = sv0 + (sv1 - sv0) * ((static_cast<float>(dy) + 0.5f - dRect.y) / dh) - 0.5f;
+			u8* drow = dst->GetBits() + static_cast<size_t>(dy) * dst->GetPitch();
+
+			for (int dx = dx0; dx < dx1; dx++)
+			{
+				const float u = su0 + (su1 - su0) * ((static_cast<float>(dx) + 0.5f - dRect.x) / dw) - 0.5f;
+				float rgba[4];
+				if (bilinear)
+				{
+					const int x0 = static_cast<int>(std::floor(u)), y0 = static_cast<int>(std::floor(v));
+					const float fx = u - static_cast<float>(x0), fy = v - static_cast<float>(y0);
+					float c00[4], c10[4], c01[4], c11[4];
+					ReadTexel(src, x0, y0, c00);
+					ReadTexel(src, x0 + 1, y0, c10);
+					ReadTexel(src, x0, y0 + 1, c01);
+					ReadTexel(src, x0 + 1, y0 + 1, c11);
+					for (int i = 0; i < 4; i++)
+					{
+						const float top = c00[i] + (c10[i] - c00[i]) * fx;
+						const float bot = c01[i] + (c11[i] - c01[i]) * fx;
+						rgba[i] = top + (bot - top) * fy;
+					}
+				}
+				else
+				{
+					ReadTexel(src, static_cast<int>(std::floor(u + 0.5f)), static_cast<int>(std::floor(v + 0.5f)), rgba);
+				}
+
+				for (int i = 0; i < 4; i++)
+					drow[static_cast<size_t>(dx) * 4 + i] = static_cast<u8>(std::clamp(rgba[i] + 0.5f, 0.0f, 255.0f));
+			}
+		}
+	}
+
+	/* ps_main2: each output line is the weighted average of itself and the two
+	 * lines around it, which is what softens a woven frame's combing. */
+	void BlitBlend(ChimeraTexture* src, const GSVector4& sRect, ChimeraTexture* dst, const GSVector4& dRect)
+	{
+		if (!src || !dst)
+			return;
+		if (ChimeraTexture::BytesPerPixel(src->GetFormat()) != 4
+			|| ChimeraTexture::BytesPerPixel(dst->GetFormat()) != 4)
+		{
+			BlitScaled(src, sRect, dst, dRect);
+			return;
+		}
+
+		const GSVector2i ssize = src->GetSize();
+		const GSVector2i dsize = dst->GetSize();
+		const float su0 = sRect.x * static_cast<float>(ssize.x);
+		const float sv0 = sRect.y * static_cast<float>(ssize.y);
+		const float su1 = sRect.z * static_cast<float>(ssize.x);
+		const float sv1 = sRect.w * static_cast<float>(ssize.y);
+
+		const int dx0 = std::max(static_cast<int>(dRect.x), 0);
+		const int dy0 = std::max(static_cast<int>(dRect.y), 0);
+		const int dx1 = std::min(static_cast<int>(dRect.z), dsize.x);
+		const int dy1 = std::min(static_cast<int>(dRect.w), dsize.y);
+		const float dw = dRect.z - dRect.x;
+		const float dh = dRect.w - dRect.y;
+		if (dx1 <= dx0 || dy1 <= dy0 || dw <= 0.0f || dh <= 0.0f)
+			return;
+
+		for (int dy = dy0; dy < dy1; dy++)
+		{
+			const float v = sv0 + (sv1 - sv0) * ((static_cast<float>(dy) + 0.5f - dRect.y) / dh) - 0.5f;
+			const int sy = static_cast<int>(std::floor(v + 0.5f));
+			u8* drow = dst->GetBits() + static_cast<size_t>(dy) * dst->GetPitch();
+
+			for (int dx = dx0; dx < dx1; dx++)
+			{
+				const float u = su0 + (su1 - su0) * ((static_cast<float>(dx) + 0.5f - dRect.x) / dw) - 0.5f;
+				const int sx = static_cast<int>(std::floor(u + 0.5f));
+				float c0[4], c1[4], c2[4];
+				ReadTexel(src, sx, sy - 1, c0);
+				ReadTexel(src, sx, sy, c1);
+				ReadTexel(src, sx, sy + 1, c2);
+				for (int i = 0; i < 4; i++)
+				{
+					const float blended = (c0[i] + c1[i] * 2.0f + c2[i]) * 0.25f;
+					drow[static_cast<size_t>(dx) * 4 + i] = static_cast<u8>(std::clamp(blended + 0.5f, 0.0f, 255.0f));
+				}
+			}
+		}
+	}
+
 	/* ---------------------------------------------------------------------
 	 * The device.
 	 */
@@ -314,18 +453,60 @@ namespace
 				BlitScaled(static_cast<ChimeraTexture*>(sTex[0]), sRect[0], dst, dRect[0]);
 		}
 
-		/* A field placed into the frame. The shader variants differ in how
-		 * they blend fields together; this device takes the field as it is,
-		 * which is the "no deinterlacing" answer and the reproducible one.
+		/* A field placed into the frame.
+		 *
+		 * These ARE the deinterlacers, and they have to be the same ones the
+		 * hardware renderer runs or a project would draw two different pictures
+		 * depending on which renderer it chose. They are ports of
+		 * bin/resources/shaders/opengl/interlace.glsl, ps_main0..2, kept in the
+		 * same order and with the same arithmetic; the fourth and fifth
+		 * (motion-adaptive) are deliberately absent, because they read three
+		 * fields of history that no savestate holds. See waterbox.config's
+		 * "deinterlace" setting for what a project may ask for.
 		 */
 		void DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
 			ShaderInterlace shader, Filter filter, const InterlaceConstantBuffer& cb) override
 		{
 			if (ChimeraGSTrace())
-				fprintf(stderr, "interlace: shader=%d src %dx%d sRect %.3f %.3f %.3f %.3f dRect %.1f %.1f %.1f %.1f\n",
+				fprintf(stderr, "interlace: shader=%d src %dx%d sRect %.3f %.3f %.3f %.3f dRect %.1f %.1f %.1f %.1f field=%d\n",
 					(int)shader, sTex ? sTex->GetSize().x : 0, sTex ? sTex->GetSize().y : 0,
-					sRect.x, sRect.y, sRect.z, sRect.w, dRect.x, dRect.y, dRect.z, dRect.w);
-			BlitScaled(static_cast<ChimeraTexture*>(sTex), sRect, static_cast<ChimeraTexture*>(dTex), dRect);
+					sRect.x, sRect.y, sRect.z, sRect.w, dRect.x, dRect.y, dRect.z, dRect.w,
+					(int)cb.ZrH.x & 1);
+
+			ChimeraTexture* src = static_cast<ChimeraTexture*>(sTex);
+			ChimeraTexture* dst = static_cast<ChimeraTexture*>(dTex);
+			if (!src || !dst)
+				return;
+
+			switch (shader)
+			{
+				case ShaderInterlace::WEAVE:
+					/* ps_main0: only the destination lines whose parity matches
+					 * this field are written. The others keep what the previous
+					 * field left there, which is what weaves the two together -
+					 * and which is also the history a savestate does not hold. */
+					BlitFiltered(src, sRect, dst, dRect, false, static_cast<int>(cb.ZrH.x) & 1);
+					return;
+
+				case ShaderInterlace::BOB:
+					/* ps_main1: the whole field, scaled. Bilinear, because that
+					 * is what upstream asks for here and half the lines of the
+					 * picture are being invented either way. */
+					BlitFiltered(src, sRect, dst, dRect, true, -1);
+					return;
+
+				case ShaderInterlace::BLEND:
+					/* ps_main2: (line above + 2*line + line below) / 4. */
+					BlitBlend(src, sRect, dst, dRect);
+					return;
+
+				default:
+					/* MAD, which this device does not do. Falling back to a plain
+					 * copy would be a silently different picture from the hardware
+					 * renderer's, so the setting refuses to offer it instead. */
+					BlitScaled(src, sRect, dst, dRect);
+					return;
+			}
 		}
 
 		void DoFXAA(GSTexture* sTex, GSTexture* dTex) override {}

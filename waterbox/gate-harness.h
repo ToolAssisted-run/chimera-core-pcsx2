@@ -314,6 +314,28 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 			lag++;
 		if (o->screenshotPath && f == frames - 1)
 			gate_write_tga(o->screenshotPath, video, w, h);
+
+		/* A diagnostic, not a gate: CHIMERA_SHOT_DIR=<dir> writes every frame
+		 * from CHIMERA_SHOT_FROM on, so a picture can be compared with the one
+		 * before it without replaying the machine once per screenshot. */
+		{
+			static const char *shotDir = NULL;
+			static long shotFrom = 0;
+			static int shotInit = 0;
+			if (!shotInit)
+			{
+				shotInit = 1;
+				shotDir = getenv("CHIMERA_SHOT_DIR");
+				const char *from = getenv("CHIMERA_SHOT_FROM");
+				shotFrom = from ? atol(from) : 0;
+			}
+			if (shotDir && f >= shotFrom)
+			{
+				char path[512];
+				snprintf(path, sizeof path, "%s/f%06ld.tga", shotDir, f);
+				gate_write_tga(path, video, w, h);
+			}
+		}
 	}
 
 	printf("frames=%ld\n", frames);

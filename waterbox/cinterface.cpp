@@ -258,17 +258,53 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(gsRenderer));
 	si.SetIntValue("EmuCore/GS", "extrathreads", 0);
 
-	/* No deinterlacing.
+	/* A setting whose value is one of a list, as an index into that list. The
+	 * package declares the names (see waterbox.config); PCSX2 wants numbers. */
+	auto SettingIndex = [](const char* name, const char* const* options, int count, int fallback) {
+		char value[32];
+		std::strncpy(value, options[fallback], sizeof(value) - 1);
+		value[sizeof(value) - 1] = '\0';
+		wbx_setting_str(name, value, sizeof(value));
+		for (int i = 0; i < count; i++)
+			if (!std::strcmp(value, options[i]))
+				return i;
+		return fallback;
+	};
+
+	/* How the two fields become one picture.
 	 *
-	 * A PS2 scans out two fields, and PCSX2's default is "Automatic", which
-	 * picks a MOTION ADAPTIVE deinterlacer: it compares this field with the
-	 * last two and decides, per pixel, what to show. That is a picture no
-	 * movie can promise to reproduce, and it is not what the console put on
-	 * the wire. Progressive means the merged frame the GS actually produced,
-	 * which is what a frontend should be handed. (It is also what the first
-	 * game booted here needed: with the adaptive path the two fields arrived
-	 * stacked, one above the other, and every line of text appeared twice.) */
-	si.SetIntValue("EmuCore/GS", "deinterlace_mode", static_cast<int>(GSInterlaceMode::Off));
+	 * A PS2 in an interlaced mode scans out ONE FIELD per vsync: 224 lines of
+	 * a 448 line image, the other 224 arriving the next time round. A core
+	 * hands the frontend one picture per frame, so something has to decide
+	 * what a single field looks like as a whole frame - and the answer is
+	 * visible in every still screen. Handing the field over stretched, which
+	 * is what "off" does and what this core used to do always, makes a static
+	 * picture climb two scanlines and fall back every frame: the fields are
+	 * two different pictures and nothing puts them in their proper places.
+	 * Measured on the PS2 browser's own menu, a still screen: 0.00 average
+	 * change per frame woven, 3.00 with no deinterlacing at all.
+	 *
+	 * PCSX2's own default is "Automatic", which on a half-height game means a
+	 * MOTION ADAPTIVE deinterlacer: it compares this field with the last three
+	 * and decides, per pixel, what to show. That is the best picture and this
+	 * core will not offer it, because three fields of history live in the
+	 * renderer rather than in the machine, and a movie whose picture depends
+	 * on how you arrived at a frame is not one this project can promise. The
+	 * four that remain read nothing but the current field and the frame buffer
+	 * the previous one left behind - which IS in the savestate, because in
+	 * this core that buffer is guest memory.
+	 *
+	 * See waterbox/gs-device.cpp for the software renderer's copies of the
+	 * same shaders: a project must draw the same picture whichever renderer it
+	 * chose. */
+	{
+		static const char* const kNames[] = { "weave", "weave-bff", "blend", "bob", "off" };
+		static const GSInterlaceMode kModes[] = {
+			GSInterlaceMode::WeaveTFF, GSInterlaceMode::WeaveBFF,
+			GSInterlaceMode::BlendTFF, GSInterlaceMode::BobTFF, GSInterlaceMode::Off };
+		const int choice = SettingIndex("deinterlace", kNames, 5, 0);
+		si.SetIntValue("EmuCore/GS", "deinterlace_mode", static_cast<int>(kModes[choice]));
+	}
 	si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowMessages", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowSpeed", false);
