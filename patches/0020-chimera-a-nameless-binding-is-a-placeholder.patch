@@ -1,0 +1,18 @@
+diff --git a/pcsx2/VMManager.cpp b/pcsx2/VMManager.cpp
+--- a/pcsx2/VMManager.cpp
++++ b/pcsx2/VMManager.cpp
+@@ -704,6 +704,14 @@
+ 
+ 	for (const InputBindingInfo& binding : info->bindings)
+ 	{
++		// A NAMELESS BINDING IS A PLACEHOLDER, not a binding. The Jogcon's
++		// table carries four empty entries ({}, {}, {}, {} in PadJogcon.cpp)
++		// so that its binding indices line up with the DualShock 2's, which
++		// the input recorder depends on - and an empty InputBindingInfo has a
++		// null name. Reading it is a strlen(nullptr), which is what happened
++		// the first time a project asked for a Jogcon.
++		if (!binding.name)
++			continue;
+ 		if (!si.GetStringList(section.c_str(), binding.name).empty())
+ 			return true;
+ 	}

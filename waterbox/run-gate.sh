@@ -108,6 +108,7 @@ if [ -z "$bios" ]; then
 	report "savedata:exports" SKIP "would prove the cards and NVRAM leave through the channel"
 	report "savedata:roundtrip" SKIP "would prove what is mounted comes back"
 	report "savedata:multitap" SKIP "would prove a multitap reaches six more card slots"
+	report "ports:columns" SKIP "needs a bios"
 	report "disc:boots" SKIP "needs a bios as well as a disc"
 	report "disc:equivalence" SKIP "needs a bios as well as a disc"
 	echo
@@ -520,6 +521,53 @@ else
 		report "disc:equivalence" PASS "200 frames of $(basename "$disc"), native == waterboxed"
 	else
 		report "disc:equivalence" FAIL "$(diff "$work/disc.nat" "$work/disc.box" | tr '\n' ' ' | head -c 120)"
+	fi
+fi
+
+# ---- what a project PLUGS IN decides what a movie has columns for ----------
+# This package declares the union of every device its eight slots can hold - a
+# DualShock 2 everywhere, and on the two physical ports a guitar, a Jogcon, a
+# Negcon and a Pop'n controller as well - because a declaration is static and
+# cannot know what a project chose. The core answers IsButtonActive and
+# IsAxisActive once, after Init, and the engine builds the entry from what the
+# machine HAS. A default PlayStation 2 is seventeen buttons and four axes, not
+# a hundred and seventy-six and forty.
+#
+# Every shape below is the DEVICE's own Inputs enum (SIO/Pad/Pad*.h), which is
+# the same place the wire is translated into: a guitar is a strum bar, five
+# frets, a whammy and a tilt; a Jogcon is a pad without its sticks and with a
+# dial; a Negcon has one shoulder each side and a twist; a Pop'n controller is
+# nine buttons and no analog at all.
+chimera_root="${CHIMERA_ROOT:-$root/../../..}"
+crun="$chimera_root/build/meson-linux/chimera-run"
+cpkg="$chimera_root/build/Cores/pcsx2.chimeraCore"
+if [ ! -x "$crun" ] || [ ! -f "$cpkg" ] || [ -z "$bios" ] || [ ! -f "$padelf" ]; then
+	report "ports:columns" SKIP "needs chimera-run, a built package, a bios and padtest.elf"
+else
+	printf '[Input]\nLogKey:#\n' > "$work/none.txt"
+	wrong=""
+	check() { # <settings> <expected entry> <what it means>
+		got="$("$crun" "$cpkg" "$padelf" "$work/none.txt" --settings "$1" \
+			--frames 1 --record "$work/shape.txt" --firmware "bios.bin=$bios" \
+			>/dev/null 2>&1 && head -1 "$work/shape.txt")"
+		[ "$got" = "$2" ] || wrong="$wrong; $3 gave [${got:-nothing}] want [$2]"
+	}
+	check '{}' \
+		'||    0,    0,    0,    0,.................|' "a DualShock 2: two sticks, seventeen buttons"
+	check '{"port1":"guitar"}' \
+		'||    0,    0,.........|' "a guitar: a whammy, a tilt, a strum bar and five frets"
+	check '{"port1":"jogcon"}' \
+		'||    0,..............|' "a Jogcon: a dial where the sticks were"
+	check '{"port1":"negcon"}' \
+		'||    0,...........|' "a Negcon: a twist, and one shoulder each side"
+	check '{"port1":"popn"}' \
+		'||...........|' "a Pop'n controller: nine buttons and no analog"
+	check '{"port1":"none"}' \
+		'||' "nothing plugged in anywhere"
+	if [ -z "$wrong" ]; then
+		report "ports:columns" PASS "a movie carries the controls the machine has, and no others"
+	else
+		report "ports:columns" FAIL "${wrong#; }"
 	fi
 fi
 

@@ -849,6 +849,89 @@ ECL_EXPORT void SetButton(int index, int value)
 		g_setButtons[index] = value ? 1 : 0;
 }
 
+/* WHICH DECLARED CONTROLS THIS MACHINE HAS.
+ *
+ * waterbox.config declares the union of every device the eight slots can hold,
+ * because a declaration is static and cannot know what a project plugged in.
+ * The slot settings are read here, so here is where the question is answered.
+ *
+ * Each list below is the device's OWN Inputs enum (SIO/Pad/Pad*.h), which is
+ * the same place ApplyInputSlot translates the wire into - so a device that
+ * grows a button grows a column, and one that never had a stick never shows
+ * one. The wire is untouched: a slot's block is the size it always was and
+ * every index in ApplyInputSlot stays where it is. */
+static bool WireLiveFor(Pad::ControllerType device, int wire)
+{
+	switch (device)
+	{
+		case Pad::ControllerType::DualShock2:
+			return wire < BTN_DS2_COUNT;
+
+		case Pad::ControllerType::Guitar:
+			/* a strum bar, five frets, and the two the shell still has */
+			return wire == BTN_START || wire == BTN_SELECT
+				|| wire == BTN_STRUM_UP || wire == BTN_STRUM_DOWN
+				|| (wire >= BTN_FRET_GREEN && wire <= BTN_FRET_ORANGE);
+
+		case Pad::ControllerType::Jogcon:
+			/* a DualShock 2 without its sticks: no L3, no R3, no analog
+			 * button, and a dial where the sticks were */
+			return wire <= BTN_R2 && wire != BTN_L3 && wire != BTN_R3
+				&& wire != BTN_ANALOG;
+
+		case Pad::ControllerType::Negcon:
+			/* a d-pad, its own four buttons, Start, and ONE shoulder each side
+			 * - which is what L1 and R1 are here (PadNegcon::PAD_L/PAD_R) */
+			return wire <= BTN_RIGHT || wire == BTN_START
+				|| wire == BTN_L1 || wire == BTN_R1
+				|| (wire >= BTN_NEGCON_A && wire <= BTN_NEGCON_II);
+
+		case Pad::ControllerType::Popn:
+			return wire == BTN_START || wire == BTN_SELECT
+				|| (wire >= BTN_POP_WHITE_L && wire <= BTN_POP_WHITE_R);
+
+		default: /* NotConnected */
+			return false;
+	}
+}
+
+ECL_EXPORT int IsButtonActive(int index)
+{
+	if (index < 0 || index >= BTN_COUNT) return 0;
+	for (int slot = 0; slot < PS2_SLOTS; slot++)
+	{
+		const int base = SlotButtonBase(slot);
+		if (index < base + SlotButtons(slot))
+			return WireLiveFor(g_slotDevice[slot], index - base) ? 1 : 0;
+	}
+	return 0;
+}
+
+ECL_EXPORT int IsAxisActive(int index)
+{
+	if (index < 0 || index >= AXIS_COUNT) return 0;
+	for (int slot = 0; slot < PS2_SLOTS; slot++)
+	{
+		const int base = SlotAxisBase(slot);
+		if (index >= base + SlotAxes(slot)) continue;
+		const int wire = index - base;
+		switch (g_slotDevice[slot])
+		{
+			case Pad::ControllerType::DualShock2:
+				return wire < AXIS_DS2_COUNT ? 1 : 0;
+			case Pad::ControllerType::Jogcon:
+				return wire == AXIS_DIAL ? 1 : 0;
+			case Pad::ControllerType::Negcon:
+				return wire == AXIS_TWIST ? 1 : 0;
+			case Pad::ControllerType::Guitar:
+				return wire == AXIS_WHAMMY || wire == AXIS_TILT ? 1 : 0;
+			default: /* a Pop'n controller is nine buttons and nothing else */
+				return 0;
+		}
+	}
+	return 0;
+}
+
 ECL_EXPORT void SetAxis(int index, int value)
 {
 	if (index >= 0 && index < AXIS_COUNT)
