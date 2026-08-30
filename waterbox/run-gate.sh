@@ -386,6 +386,57 @@ else
 	report "savedata:roundtrip" PASS "mounted, seen by the machine, and returned unchanged"
 fi
 
+# ---- the pad, as the machine sees it ----------------------------------------
+# tests/own/padtest.elf draws every button of a DualShock 2 with the pressure
+# the machine is reading. Hold the button a package DECLARES as "Circle" and the
+# circle cell must be the one that moves - nothing else can answer that, because
+# every layer between a frontend column and the pad is keyed by the same names
+# and a swap in one of them is invisible from either end.
+#
+# It also exercises booting a PS2 EXECUTABLE, which is the other thing this file
+# is: no disc in the tray, the program handed to the machine directly.
+padelf="$root/tests/own/padtest.elf"
+if [ ! -f "$padelf" ]; then
+	report "pad:mapping" SKIP "tests/own/padtest.elf is missing"
+elif [ -z "$bios" ]; then
+	report "pad:mapping" SKIP "needs a bios"
+else
+	pd="$work/pad"
+	mkdir -p "$pd"
+	cp "$bios" "$pd/bios.bin"
+	cp "$padelf" "$pd/padtest.elf"
+	printf '{"disc":["padtest.elf"]}' > "$pd/slots"
+	printf '{}' > "$pd/settings"
+
+	# The frames are all EVEN: an interlaced machine hands over half a picture
+	# per frame, so two frames an odd number apart differ everywhere.
+	if ! "$nat/run-native" "$pd" --frames 400 --screenshot "$work/pad.idle.tga" >/dev/null 2>&1 \
+		|| [ ! -s "$work/pad.idle.tga" ]; then
+		report "pad:elf" FAIL "the machine did not boot the executable"
+	else
+		report "pad:elf" PASS "padtest.elf booted with no disc in the tray"
+
+		names="Up Down Left Right Start Select Square Cross Circle Triangle L1 R1 L2 R2 L3 R3"
+		wrong=""
+		idx=0
+		for want in $names; do
+			# the press must still be HELD on the frame that is captured, which
+			# is the last one - a released button reads as idle and every
+			# button would come back as "nothing"
+			"$nat/run-native" "$pd" --frames 500 --press 400:100:$idx \
+				--screenshot "$work/pad.$idx.tga" >/dev/null 2>&1
+			got="$(python3 "$here/tests/pad-cells.py" "$work/pad.idle.tga" "$work/pad.$idx.tga" | tr '\n' ' ' | sed 's/ $//')"
+			[ "$got" = "$want" ] || wrong="$wrong $want->[${got:-nothing}]"
+			idx=$((idx + 1))
+		done
+		if [ -z "$wrong" ]; then
+			report "pad:mapping" PASS "all 16 buttons light their own readout, and no other"
+		else
+			report "pad:mapping" FAIL "$wrong"
+		fi
+	fi
+fi
+
 # ---- tier three: a disc ----------------------------------------------------
 if [ -z "$disc" ]; then
 	report "disc:boots" SKIP "no disc: put an image in tests/roms/"

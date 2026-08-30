@@ -1,9 +1,9 @@
 {
-  "_comment": "The core-declared file form for chimera's project wizard: a PlayStation 2 project is one disc, and whatever the machine is to start with already written on its cards. The bios is not here - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "_comment": "The core-declared file form for chimera's project wizard: a PlayStation 2 project is one disc or one executable, and whatever the machine is to start with already written on its cards. The bios is not here - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
   "slots": [
     {
       "id": "disc",
-      "title": "Disc",
+      "title": "Disc or program",
       "min": 1,
       "max": 1,
       "formats": [
@@ -13,9 +13,10 @@
         "chd",
         "cso",
         "zso",
-        "gz"
+        "gz",
+        "elf"
       ],
-      "help": "The DVD or CD image. A plain .iso or .bin (2048- or 2352-byte sectors, with or without a .cue beside it), or a compressed one: .chd, .cso, .zso, .gz. A PS2 project with no disc is a console sitting at its own browser, which is a machine worth booting - but the wizard asks for one, because a movie is usually of a game."
+      "help": "What the machine runs. Usually a DVD or CD image: a plain .iso or .bin (2048- or 2352-byte sectors, with or without a .cue beside it), or a compressed one - .chd, .cso, .zso, .gz. It can also be a PS2 EXECUTABLE (.elf), which is what homebrew and test programs ship as: the tray stays empty and the machine is handed the program to run instead, exactly as it would run a disc's own boot file. What decides is the file's first four bytes, not its name, so an executable called anything still boots. A project with no file at all is a console sitting at its own browser, which is a machine worth booting - but the wizard asks for one, because a movie is usually of a game."
     },
     {
       "id": "savedata",

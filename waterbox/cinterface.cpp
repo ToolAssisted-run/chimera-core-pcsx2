@@ -145,6 +145,39 @@ extern "C" void chimera_input_was_read(void) { g_inputRead = 1; }
  * sensitivity - so a frontend's input goes in there rather than into a
  * parallel copy of the same state.
  */
+/* Is this a program the machine can be handed directly, rather than a disc?
+ *
+ * By its FIRST FOUR BYTES, not by its name. Upstream decides on the ".elf"
+ * suffix, which is fine for a file picker and wrong here: a project names its
+ * files whatever the author called them, and the slot map carries that name
+ * into the guest verbatim. What makes a file a PS2 executable is that it is an
+ * ELF, so that is what is asked.
+ */
+enum class ProgramKind
+{
+	NotAProgram,   /* a disc image, or anything else */
+	Executable,    /* an EE program the machine can be started on */
+	IopModule,     /* an .irx: a driver, loaded BY a program, never instead of one */
+};
+
+static ProgramKind ClassifyProgram(const char* path)
+{
+	auto fp = FileSystem::OpenManagedCFile(path, "rb");
+	if (!fp)
+		return ProgramKind::NotAProgram;
+	unsigned char head[20] = {};
+	if (std::fread(head, 1, sizeof(head), fp.get()) != sizeof(head))
+		return ProgramKind::NotAProgram;
+	if (head[0] != 0x7F || head[1] != 'E' || head[2] != 'L' || head[3] != 'F')
+		return ProgramKind::NotAProgram;
+
+	/* e_type. An IOP module is an ELF like any other except for this: Sony
+	 * gave it 0xFF80, outside the range the standard assigns, which is what
+	 * makes an .irx recognisable without reading its sections. */
+	const unsigned type = head[16] | (static_cast<unsigned>(head[17]) << 8);
+	return type == 0xFF80 ? ProgramKind::IopModule : ProgramKind::Executable;
+}
+
 static void ApplyInput()
 {
 	PadBase* pad = Pad::GetPad(0, 0);
@@ -543,8 +576,33 @@ ECL_EXPORT int Init(void)
 
 	if (FileSystem::FileExists(file))
 	{
-		boot.filename = file;
-		boot.source_type = CDVD_SourceType::Iso;
+		const ProgramKind kind = ClassifyProgram(file);
+		if (kind == ProgramKind::IopModule)
+		{
+			snprintf(g_loadError, sizeof(g_loadError),
+				"\"%s\" is an IOP module (.irx). Those are drivers a program loads "
+				"while it runs - a memory card driver, a pad driver - and not "
+				"something the machine can be started on. Give it the program "
+				"instead: a disc image, or the .elf that would have loaded this.",
+				file);
+			return 0;
+		}
+		if (kind == ProgramKind::Executable)
+		{
+			/* A PS2 executable, run directly - which is what a PS2 does when
+			 * a disc's own boot file is handed to it, and what every homebrew
+			 * and test program in the world ships as. There is no disc in the
+			 * tray: the machine boots its bios and is given this to run
+			 * instead, which is upstream's elf_override and also what forces
+			 * the fast boot it needs. */
+			boot.elf_override = file;
+			boot.source_type = CDVD_SourceType::NoDisc;
+		}
+		else
+		{
+			boot.filename = file;
+			boot.source_type = CDVD_SourceType::Iso;
+		}
 	}
 	else
 	{

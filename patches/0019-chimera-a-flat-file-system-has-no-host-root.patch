@@ -1,0 +1,24 @@
+diff --git a/pcsx2/IopBios.cpp b/pcsx2/IopBios.cpp
+--- a/pcsx2/IopBios.cpp
++++ b/pcsx2/IopBios.cpp
+@@ -545,10 +545,20 @@
+ 			// For now it just supports relative folders from the location of the elf
+ 			std::string native_path(Path::Canonicalize(path));
+ 			std::string new_path;
++#ifdef CHIMERA_WATERBOX
++			/* chimera: the sandbox's file system is FLAT (patch 0007) - a file
++			   is a name and there are no directories, so there is no root to be
++			   under and hostRoot is always empty. Both branches below then leave
++			   new_path empty, and "host:padtest.elf" resolves to nothing, which
++			   is why booting a PS2 executable directly failed to read its own
++			   ELF. In a flat file system a name IS its path. */
++			new_path = std::move(native_path);
++#else
+ 			if (!hostRoot.empty() && native_path.starts_with(hostRoot))
+ 				new_path = std::move(native_path);
+ 			else if (!hostRoot.empty()) // relative paths
+ 				new_path = Path::Combine(hostRoot, native_path);
++#endif
+ 
+ 			// Allow opening the ELF override.
+ 			if (new_path == VMManager::Internal::GetELFOverride())
