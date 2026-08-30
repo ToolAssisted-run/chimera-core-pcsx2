@@ -51,6 +51,10 @@
 #include "SIO/Memcard/MemoryCardFile.h"
 #include "SIO/Pad/Pad.h"
 #include "SIO/Pad/PadDualshock2.h"
+#include "SIO/Pad/PadGuitar.h"
+#include "SIO/Pad/PadJogcon.h"
+#include "SIO/Pad/PadNegcon.h"
+#include "SIO/Pad/PadPopn.h"
 #include "VMManager.h"
 #include "VUmicro.h"
 #include "common/Console.h"
@@ -93,8 +97,17 @@ extern "C" { ECL_INVISIBLE int chimera_render_enabled = 1; }
 extern "C" { ECL_INVISIBLE int chimera_gs_trace = 0; }
 static bool g_loaded;
 
-/* the wire: one DualShock 2. Order is the frontend's button order and must
- * match waterbox.config. */
+/* The wire: EIGHT slots. Two physical ports, each of which a multitap turns
+ * into four, in PCSX2's own unified-slot order (Sio.h): unified 0 and 1 are the
+ * two ports, 2..4 are port 1's multitap slots B..D and 5..7 are port 2's. That
+ * is the order a game sees, and P1..P8 are those eight.
+ *
+ * Order is the frontend's button order and must match waterbox.config: the
+ * DualShock 2's seventeen for every slot, and for the two PHYSICAL ports the
+ * twenty more the instruments need. A multitap slot has none of those, which is
+ * why the block size differs and why every index goes through SlotButtons(). */
+#define PS2_SLOTS 8
+#define PS2_PORTS 2   /* the slots that may hold something other than a pad */
 enum
 {
 	BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT,
@@ -102,21 +115,64 @@ enum
 	BTN_SQUARE, BTN_CROSS, BTN_CIRCLE, BTN_TRIANGLE,
 	BTN_L1, BTN_R1, BTN_L2, BTN_R2, BTN_L3, BTN_R3,
 	BTN_ANALOG,
-	BTN_COUNT
+	BTN_DS2_COUNT,
+	/* the two physical ports only, from here down */
+	BTN_NEGCON_A = BTN_DS2_COUNT, BTN_NEGCON_B, BTN_NEGCON_I, BTN_NEGCON_II,
+	BTN_STRUM_UP, BTN_STRUM_DOWN,
+	BTN_FRET_GREEN, BTN_FRET_RED, BTN_FRET_YELLOW, BTN_FRET_BLUE, BTN_FRET_ORANGE,
+	BTN_POP_WHITE_L, BTN_POP_YELLOW_L, BTN_POP_GREEN_L, BTN_POP_BLUE_L,
+	BTN_POP_RED,
+	BTN_POP_BLUE_R, BTN_POP_GREEN_R, BTN_POP_YELLOW_R, BTN_POP_WHITE_R,
+	BTN_PORT_COUNT
 };
+#define BTN_COUNT (BTN_PORT_COUNT * PS2_PORTS + BTN_DS2_COUNT * (PS2_SLOTS - PS2_PORTS))
 static uint8_t g_setButtons[BTN_COUNT];
 static uint8_t g_buttons[BTN_COUNT];
 
-/* the analog wire: two sticks, in the frontend's order */
-enum { AXIS_LX, AXIS_LY, AXIS_RX, AXIS_RY, AXIS_COUNT };
+/* the analog wire: two sticks for every slot, and for the two physical ports
+ * the four the instruments read */
+enum
+{
+	AXIS_LX, AXIS_LY, AXIS_RX, AXIS_RY,
+	AXIS_DS2_COUNT,
+	AXIS_DIAL = AXIS_DS2_COUNT, AXIS_TWIST, AXIS_WHAMMY, AXIS_TILT,
+	AXIS_PORT_COUNT
+};
+#define AXIS_COUNT (AXIS_PORT_COUNT * PS2_PORTS + AXIS_DS2_COUNT * (PS2_SLOTS - PS2_PORTS))
 static int16_t g_axes[AXIS_COUNT];
+
+/* How many controls a slot declares, and where its block starts. The first two
+ * slots are wider than the other six, so neither is a multiplication. */
+static int SlotButtons(int slot) { return slot < PS2_PORTS ? BTN_PORT_COUNT : BTN_DS2_COUNT; }
+static int SlotAxes(int slot) { return slot < PS2_PORTS ? AXIS_PORT_COUNT : AXIS_DS2_COUNT; }
+
+static int SlotButtonBase(int slot)
+{
+	int base = 0;
+	for (int i = 0; i < slot; i++) base += SlotButtons(i);
+	return base;
+}
+
+static int SlotAxisBase(int slot)
+{
+	int base = 0;
+	for (int i = 0; i < slot; i++) base += SlotAxes(i);
+	return base;
+}
+
+/* What each slot is, read from the settings at Init. A slot's device is part of
+ * the machine, not something that changes under a running movie. */
+static Pad::ControllerType g_slotDevice[PS2_SLOTS];
 
 /* the settings layer host.cpp installs, and the two things the sandbox's own
  * device and audio stream hand back */
 SettingsInterface* ChimeraGetSettings();
 /* The names the cards travel under. A frontend mounts what the last run left
  * under these names, and stores back what this run produced. */
-static const char* const MEMCARD_NAME[2] = {"memcard1.ps2", "memcard2.ps2"};
+static const char* const MEMCARD_NAME[PS2_SLOTS] = {
+	"memcard1.ps2", "memcard2.ps2", "memcard3.ps2", "memcard4.ps2",
+	"memcard5.ps2", "memcard6.ps2", "memcard7.ps2", "memcard8.ps2",
+};
 
 /* ...and what the CONSOLE remembers when it is switched off: the language, the
  * clock configuration, the region parameters, the machine's iLink id. PCSX2
@@ -178,11 +234,125 @@ static ProgramKind ClassifyProgram(const char* path)
 	return type == 0xFF80 ? ProgramKind::IopModule : ProgramKind::Executable;
 }
 
-static void ApplyInput()
+/* One control, from the frontend's wire to a pad's input index. A pad takes a
+ * FLOAT: the DualShock 2's buttons are pressure-sensitive, so "held" is 1.0 and
+ * "not held" is 0.0, and a stick's half is however far it has been pushed. */
+static void SetHalfAxis(PadBase* pad, u32 negative, u32 positive, int16_t value)
 {
-	PadBase* pad = Pad::GetPad(0, 0);
+	const float v = static_cast<float>(value) / 32767.0f;
+	pad->Set(negative, v < 0.0f ? -v : 0.0f);
+	pad->Set(positive, v > 0.0f ? v : 0.0f);
+}
+
+static void ApplyInputSlot(int slot)
+{
+	PadBase* pad = Pad::GetPad(static_cast<u8>(slot));
 	if (!pad)
 		return;
+
+	const uint8_t* btn = &g_buttons[SlotButtonBase(slot)];
+	const int16_t* ax = &g_axes[SlotAxisBase(slot)];
+
+	/* Every device has its OWN input indices - PadNegcon::PAD_A is not
+	 * PadDualshock2::PAD_A - so the wire is translated per device rather than
+	 * once. Only the device this slot actually holds is written; the controls
+	 * of the others are declared for the frontend's sake and never read. */
+	switch (g_slotDevice[slot])
+	{
+	case Pad::ControllerType::Guitar:
+	{
+		static const struct { int wire; u32 button; } map[] = {
+			{BTN_STRUM_UP, PadGuitar::Inputs::STRUM_UP},
+			{BTN_STRUM_DOWN, PadGuitar::Inputs::STRUM_DOWN},
+			{BTN_SELECT, PadGuitar::Inputs::SELECT},
+			{BTN_START, PadGuitar::Inputs::START},
+			{BTN_FRET_GREEN, PadGuitar::Inputs::GREEN},
+			{BTN_FRET_RED, PadGuitar::Inputs::RED},
+			{BTN_FRET_YELLOW, PadGuitar::Inputs::YELLOW},
+			{BTN_FRET_BLUE, PadGuitar::Inputs::BLUE},
+			{BTN_FRET_ORANGE, PadGuitar::Inputs::ORANGE},
+		};
+		for (const auto& m : map)
+			pad->Set(m.button, btn[m.wire] ? 1.0f : 0.0f);
+		/* the whammy bar and the tilt sensor are single axes, not halves: what
+		 * the frontend sends as -32768..32767 is 0..1 of a bar being pushed */
+		pad->Set(PadGuitar::Inputs::WHAMMY,
+			(static_cast<float>(ax[AXIS_WHAMMY]) + 32768.0f) / 65535.0f);
+		pad->Set(PadGuitar::Inputs::TILT,
+			(static_cast<float>(ax[AXIS_TILT]) + 32768.0f) / 65535.0f);
+		return;
+	}
+	case Pad::ControllerType::Popn:
+	{
+		static const struct { int wire; u32 button; } map[] = {
+			{BTN_POP_YELLOW_L, PadPopn::Inputs::PAD_YELLOW_LEFT},
+			{BTN_POP_YELLOW_R, PadPopn::Inputs::PAD_YELLOW_RIGHT},
+			{BTN_POP_BLUE_L, PadPopn::Inputs::PAD_BLUE_LEFT},
+			{BTN_POP_BLUE_R, PadPopn::Inputs::PAD_BLUE_RIGHT},
+			{BTN_POP_WHITE_L, PadPopn::Inputs::PAD_WHITE_LEFT},
+			{BTN_POP_WHITE_R, PadPopn::Inputs::PAD_WHITE_RIGHT},
+			{BTN_POP_GREEN_L, PadPopn::Inputs::PAD_GREEN_LEFT},
+			{BTN_POP_GREEN_R, PadPopn::Inputs::PAD_GREEN_RIGHT},
+			{BTN_POP_RED, PadPopn::Inputs::PAD_RED},
+			{BTN_START, PadPopn::Inputs::PAD_START},
+			{BTN_SELECT, PadPopn::Inputs::PAD_SELECT},
+		};
+		for (const auto& m : map)
+			pad->Set(m.button, btn[m.wire] ? 1.0f : 0.0f);
+		return;
+	}
+	case Pad::ControllerType::Negcon:
+	{
+		static const struct { int wire; u32 button; } map[] = {
+			{BTN_UP, PadNegcon::Inputs::PAD_UP},
+			{BTN_DOWN, PadNegcon::Inputs::PAD_DOWN},
+			{BTN_LEFT, PadNegcon::Inputs::PAD_LEFT},
+			{BTN_RIGHT, PadNegcon::Inputs::PAD_RIGHT},
+			{BTN_NEGCON_A, PadNegcon::Inputs::PAD_A},
+			{BTN_NEGCON_B, PadNegcon::Inputs::PAD_B},
+			{BTN_NEGCON_I, PadNegcon::Inputs::PAD_I},
+			{BTN_NEGCON_II, PadNegcon::Inputs::PAD_II},
+			{BTN_START, PadNegcon::Inputs::PAD_START},
+			/* the Negcon has ONE shoulder button each side, which is what L1
+			 * and R1 are on a pad; there is no L2 or R2 to bind */
+			{BTN_L1, PadNegcon::Inputs::PAD_L},
+			{BTN_R1, PadNegcon::Inputs::PAD_R},
+		};
+		for (const auto& m : map)
+			pad->Set(m.button, btn[m.wire] ? 1.0f : 0.0f);
+		SetHalfAxis(pad, PadNegcon::Inputs::PAD_TWIST_LEFT,
+			PadNegcon::Inputs::PAD_TWIST_RIGHT, ax[AXIS_TWIST]);
+		return;
+	}
+	case Pad::ControllerType::Jogcon:
+	{
+		static const struct { int wire; u32 button; } map[] = {
+			{BTN_UP, PadJogcon::Inputs::PAD_UP},
+			{BTN_DOWN, PadJogcon::Inputs::PAD_DOWN},
+			{BTN_LEFT, PadJogcon::Inputs::PAD_LEFT},
+			{BTN_RIGHT, PadJogcon::Inputs::PAD_RIGHT},
+			{BTN_TRIANGLE, PadJogcon::Inputs::PAD_TRIANGLE},
+			{BTN_CIRCLE, PadJogcon::Inputs::PAD_CIRCLE},
+			{BTN_CROSS, PadJogcon::Inputs::PAD_CROSS},
+			{BTN_SQUARE, PadJogcon::Inputs::PAD_SQUARE},
+			{BTN_SELECT, PadJogcon::Inputs::PAD_SELECT},
+			{BTN_START, PadJogcon::Inputs::PAD_START},
+			{BTN_L1, PadJogcon::Inputs::PAD_L1},
+			{BTN_L2, PadJogcon::Inputs::PAD_L2},
+			{BTN_R1, PadJogcon::Inputs::PAD_R1},
+			{BTN_R2, PadJogcon::Inputs::PAD_R2},
+		};
+		for (const auto& m : map)
+			pad->Set(m.button, btn[m.wire] ? 1.0f : 0.0f);
+		SetHalfAxis(pad, PadJogcon::Inputs::PAD_DIAL_LEFT,
+			PadJogcon::Inputs::PAD_DIAL_RIGHT, ax[AXIS_DIAL]);
+		return;
+	}
+	case Pad::ControllerType::NotConnected:
+		return;
+	default:
+		break; /* the DualShock 2, below */
+	}
 
 	static const struct
 	{
@@ -209,7 +379,7 @@ static void ApplyInput()
 	};
 
 	for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
-		pad->Set(map[i].button, g_buttons[map[i].wire] ? 1.0f : 0.0f);
+		pad->Set(map[i].button, btn[map[i].wire] ? 1.0f : 0.0f);
 
 	/* The sticks: the frontend sends signed 16-bit, the pad wants a value per
 	 * DIRECTION, which is how a DualShock 2's halves are reported. */
@@ -226,11 +396,15 @@ static void ApplyInput()
 	};
 
 	for (size_t i = 0; i < sizeof(sticks) / sizeof(sticks[0]); i++)
-	{
-		const float value = static_cast<float>(g_axes[sticks[i].axis]) / 32767.0f;
-		pad->Set(sticks[i].negative, value < 0.0f ? -value : 0.0f);
-		pad->Set(sticks[i].positive, value > 0.0f ? value : 0.0f);
-	}
+		SetHalfAxis(pad, sticks[i].negative, sticks[i].positive, ax[sticks[i].axis]);
+}
+
+/* Every slot, every frame. A slot set to 'none' holds a PadNotConnected, which
+ * has nothing to write to. */
+static void ApplyInput()
+{
+	for (int slot = 0; slot < PS2_SLOTS; slot++)
+		ApplyInputSlot(slot);
 }
 
 /* ---------------------------------------------------------------------------
@@ -407,20 +581,67 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	 * filled from whatever the frontend mounted under its name and handed back
 	 * through the save-data channel afterwards.
 	 */
-	const bool card1 = wbx_setting_bool("memcard1", 1) != 0;
-	const bool card2 = wbx_setting_bool("memcard2", 0) != 0;
-	si.SetBoolValue("MemoryCards", "Slot1_Enable", card1);
-	si.SetBoolValue("MemoryCards", "Slot2_Enable", card2);
-	si.SetStringValue("MemoryCards", "Slot1_Filename", MEMCARD_NAME[0]);
-	si.SetStringValue("MemoryCards", "Slot2_Filename", MEMCARD_NAME[1]);
-
-	/* No multitap, and so no cards behind one. */
-	si.SetBoolValue("Pad", "MultitapPort1", false);
-	si.SetBoolValue("Pad", "MultitapPort2", false);
-	for (int port = 1; port <= 2; port++)
+	/* Eight of them, indexed the way PCSX2 indexes everything on the SIO bus:
+	 * unified slot 0 and 1 are the console's own two, and 2..7 are the six a
+	 * multitap adds. The console's two are "Slot<n>", the rest are
+	 * "Multitap<port>_Slot<slot>", which is the same numbering wearing a
+	 * different name (Pcsx2Config.cpp's LoadSaveMemcards). */
+	for (int card = 0; card < PS2_SLOTS; card++)
 	{
-		for (int slot = 2; slot <= 4; slot++)
-			si.SetBoolValue("MemoryCards", fmt::format("Multitap{}_Slot{}_Enable", port, slot).c_str(), false);
+		const bool present = wbx_setting_bool(
+			fmt::format("memcard{}", card + 1).c_str(), card == 0 ? 1 : 0) != 0;
+		if (card < 2)
+		{
+			si.SetBoolValue("MemoryCards", fmt::format("Slot{}_Enable", card + 1).c_str(), present);
+			si.SetStringValue("MemoryCards", fmt::format("Slot{}_Filename", card + 1).c_str(),
+				MEMCARD_NAME[card]);
+		}
+		else
+		{
+			const int port = card <= 4 ? 1 : 2;
+			const int slot = (card <= 4 ? card - 1 : card - 4) + 1;
+			si.SetBoolValue("MemoryCards",
+				fmt::format("Multitap{}_Slot{}_Enable", port, slot).c_str(), present);
+			si.SetStringValue("MemoryCards",
+				fmt::format("Multitap{}_Slot{}_Filename", port, slot).c_str(), MEMCARD_NAME[card]);
+		}
+	}
+
+	/* The multitaps, and what is plugged into each of the eight slots.
+	 *
+	 * A multitap is its own setting rather than something guessed from the
+	 * controllers: a game can SEE one whether or not anything is in it, and it
+	 * is what makes the six extra memory card slots reachable at all - so
+	 * deriving it would make a card in a slot depend on a pad being in it.
+	 *
+	 * The pad type lives in section "Pad<unified+1>", key "Type", under the
+	 * names PCSX2 gives its own ControllerInfo. "None" is a real device here
+	 * (PadNotConnected), not an absence. */
+	si.SetBoolValue("Pad", "MultitapPort1", wbx_setting_bool("multitap1", 0) != 0);
+	si.SetBoolValue("Pad", "MultitapPort2", wbx_setting_bool("multitap2", 0) != 0);
+
+	{
+		static const char* const devices[] = {
+			"none", "dualshock2", "guitar", "jogcon", "negcon", "popn"
+		};
+		static const char* const pcsx2Names[] = {
+			"None", "DualShock2", "Guitar", "Jogcon", "Negcon", "Popn"
+		};
+		static const Pad::ControllerType types[] = {
+			Pad::ControllerType::NotConnected, Pad::ControllerType::DualShock2,
+			Pad::ControllerType::Guitar, Pad::ControllerType::Jogcon,
+			Pad::ControllerType::Negcon, Pad::ControllerType::Popn,
+		};
+		for (int slot = 0; slot < PS2_SLOTS; slot++)
+		{
+			/* the instruments are offered on the two physical ports only, so
+			 * the other six choose between two options and nothing else */
+			const int choices = slot < PS2_PORTS ? 6 : 2;
+			const int choice = SettingIndex(
+				fmt::format("port{}", slot + 1).c_str(), devices, choices, slot == 0 ? 1 : 0);
+			g_slotDevice[slot] = types[choice];
+			si.SetStringValue(fmt::format("Pad{}", slot + 1).c_str(), "Type", pcsx2Names[choice]);
+		}
 	}
 
 	/* Auto-eject exists so that a card swapped on a desktop is noticed. A
@@ -636,11 +857,16 @@ ECL_EXPORT void SetAxis(int index, int value)
 
 ECL_EXPORT void FrameAdvance(uint64_t packed)
 {
-	/* two input channels, and a frame is the UNION of them: a controller of
-	 * 64 buttons or fewer arrives packed in this call, while the gate harness
-	 * (and any wider controller) drives SetButton. */
+	/* Two input channels, and a frame is the UNION of them: the first 64
+	 * buttons arrive packed in this call, while the gate harness (and any
+	 * controller wider than 64) drives SetButton.
+	 *
+	 * EIGHT SLOTS IS WIDER THAN 64. Shifting a uint64_t by 64 or more is
+	 * undefined, not zero, so the packed channel stops where it runs out and
+	 * the rest of the wire is SetButton's alone - which is what Chimera uses
+	 * for a controller this wide anyway. */
 	for (int i = 0; i < BTN_COUNT; i++)
-		g_buttons[i] = g_setButtons[i] || ((packed >> i) & 1);
+		g_buttons[i] = g_setButtons[i] || (i < 64 && ((packed >> i) & 1));
 
 	g_inputRead = 0;
 	g_nsamples = 0;
@@ -792,7 +1018,7 @@ static int CollectSaveData(SaveData* out, int max)
 {
 	int count = 0;
 
-	for (int slot = 0; slot < 2 && count < max; slot++)
+	for (int slot = 0; slot < PS2_SLOTS && count < max; slot++)
 	{
 		size_t size = 0;
 		const u8* image = FileMcd_GetImage(static_cast<uint>(slot), &size);
@@ -812,7 +1038,7 @@ static int CollectSaveData(SaveData* out, int max)
 	return count;
 }
 
-#define MAX_SAVEDATA 4
+#define MAX_SAVEDATA (PS2_SLOTS + 1)
 
 static int SaveDataAt(int32_t i, SaveData* item)
 {

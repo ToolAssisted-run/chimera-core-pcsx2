@@ -7,8 +7,13 @@ exactly one cell changes - so pressing the button a package declares as "Circle"
 and watching which cell moves is the only honest way to ask whether the wire
 from the frontend to the pad is the one the names promise.
 
-Usage: pad-cells.py <idle.tga> <held.tga>
+Usage: pad-cells.py <idle.tga> <held.tga> [port]
 prints the names of the cells that differ, one per line.
+
+padtest draws ONE BLOCK PER PORT, the second exactly 240 rows below the first,
+so `port` (0 or 1, default 0) says which port's readouts to look at. Asking for
+port 1 and being told nothing changed, while port 0 moved, is what "the input
+went to the right port" means.
 
 The two frames must have the same PARITY. A PS2 in an interlaced mode scans out
 half a picture per frame and the deinterlacer reconstructs the rest, so frames
@@ -51,14 +56,21 @@ def read_tga(path):
     return w, h, rows
 
 
+# how far down the second port's block is drawn, measured from the program's
+# own output by holding the same button on each port
+PORT_PITCH = 240
+
+
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
+    dy = PORT_PITCH * (int(sys.argv[3]) if len(sys.argv) == 4 else 0)
     w, h, idle = read_tga(sys.argv[1])
     w2, h2, held = read_tga(sys.argv[2])
     if (w, h) != (w2, h2):
         sys.exit(f"frames differ in size: {w}x{h} vs {w2}x{h2}")
     for name, (x0, x1, y0, y1) in CELLS.items():
+        y0, y1 = y0 + dy, y1 + dy
         if y1 >= h or x1 >= w:
             continue
         changed = any(held[y][x * 4:x * 4 + 3] != idle[y][x * 4:x * 4 + 3]

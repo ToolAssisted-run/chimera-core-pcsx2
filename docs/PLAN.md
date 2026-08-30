@@ -142,6 +142,16 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-08-30** Eight controller slots and eight memory cards. `port1`..`port8`
+  choose a device, `multitap1`/`multitap2` plug in the taps that make slots 3-8
+  reachable at all, and `memcard1`..`memcard8` say which sockets hold a card.
+  The two PHYSICAL ports also take the instruments - a guitar, a Jogcon, a
+  Negcon, a Pop'n controller - and carry the extra controls those need; a
+  multitap slot takes a DualShock 2 and nothing else, because every declared
+  control costs a column in every movie recorded with this core and nobody
+  builds that machine. THE MOVIE FORMAT CHANGED: every column is now `P1 Cross`
+  rather than `Cross`, and there are 176 of them.
+
 - **2026-08-27** Feasibility settled (this document). Repo created, upstream
   pinned at `e1dd0a0`. The verdict: harder than Flycast in two places (no HLE
   bios, a mandatory GS thread), easier in one that matters more (a real
@@ -235,6 +245,15 @@ native one over 1600 frames including scripted input.
   top of each other. Progressive is the merged frame the GS actually produced.
 - Two more syscalls the sandbox lacked: getcwd (the answer is "here") and
   lstat (there are no links).
+- **A slot's block is not a multiplication.** Eight slots, but the two physical
+  ports declare twenty controls the other six do not, so `slot * 17` is wrong
+  for everything past the second and quietly reads somebody else's buttons.
+  Every index goes through `SlotButtonBase()`.
+- **The gate harness has its own bound.** `--press 400:100:45` did nothing at
+  all and reported no error: `GATE_BTN_COUNT` was still 17, so the press was
+  dropped before it reached the core, and player 2 looked dead when it was
+  fine. A harness that silently ignores an out-of-range control is a harness
+  that can only ever confirm what it already believed.
 
 ## Memory cards
 
@@ -271,10 +290,16 @@ straight to the browser. Guest and native produce the same kilobyte.
 
 ## What is known to be wrong, and is next
 
-- **Multitap cards are not wired.** Two slots, which is what a console has
-  without one.
 - **Only one disc format is tested**: a raw 2352-byte-sector CD. CHD and CSO
   compile and neither has been read.
 - **Only ISO/BIN discs are tested.** CHD, CSO, ZSO and GZ compile, and the
   package declares them, but none has been read.
-- **No multitap**, so no cards behind one, and no second controller.
+- **The instruments are declared, and barely exercised.** A physical port can
+  be set to `guitar`, `jogcon`, `negcon` or `popn`; each is built and the
+  machine reports it, and the wire from a frontend column to the pad's own
+  input index is written down. What nothing here does is play a game with one -
+  whether a whammy bar FEELS right is a question only Guitar Hero can answer.
+- **The pressure modifier is not offered.** A DualShock 2's buttons are
+  pressure-sensitive and `PAD_PRESSURE` scales how hard the host is pressing
+  them. It is a host convenience rather than a control the machine has, so it
+  is left out; a movie that wants half-pressed buttons has no way to ask yet.

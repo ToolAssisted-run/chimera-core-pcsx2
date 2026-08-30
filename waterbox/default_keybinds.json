@@ -1,62 +1,392 @@
 {
-	"_comment": [
-		"Default bindings for the DualShock 2 this package declares. The frontend ships no",
-		"bindings of its own - a package that declares a controller says how it is played by",
-		"default, and the user's own bindings always win.",
-		"",
-		"The face buttons follow the pad's own geometry rather than a keyboard's alphabet:",
-		"Cross is the bottom one and takes the key under the hand, Circle the right, Square",
-		"the left, Triangle the top. The shoulders sit above and below each other the way they",
-		"do on the controller. Analog is a real button on a DualShock 2 - it switches the pad",
-		"between digital and analog mode, which a game can see - so it is bound rather than",
-		"assumed."
-	],
-	"AllTrollers": {
-		"DualShock 2": {
-			"Up": "Up, J1 POV1U, X1 DpadUp",
-			"Down": "Down, J1 POV1D, X1 DpadDown",
-			"Left": "Left, J1 POV1L, X1 DpadLeft",
-			"Right": "Right, J1 POV1R, X1 DpadRight",
-			"Start": "Enter, J1 B10, X1 Start",
-			"Select": "RightShift, J1 B9, X1 Back",
-			"Square": "A, J1 B1, X1 X",
-			"Cross": "Z, J1 B2, X1 A",
-			"Circle": "X, J1 B3, X1 B",
-			"Triangle": "S, J1 B4, X1 Y",
-			"L1": "Q, J1 B5, X1 LeftShoulder",
-			"R1": "W, J1 B6, X1 RightShoulder",
-			"L2": "1, J1 B7, X1 LeftTrigger",
-			"R2": "2, J1 B8, X1 RightTrigger",
-			"L3": "E, J1 B11, X1 LeftStick",
-			"R3": "R, J1 B12, X1 RightStick",
-			"Analog": "Tab"
-		}
-	},
-	"AllTrollersAutoFire": {
-		"DualShock 2": {}
-	},
-	"AllTrollersAnalog": {
-		"DualShock 2": {
-			"Left Stick X": {
-				"Value": "X1 LeftThumbX Axis",
-				"Mult": 1.0,
-				"Deadzone": 0.1
-			},
-			"Left Stick Y": {
-				"Value": "X1 LeftThumbY Axis",
-				"Mult": -1.0,
-				"Deadzone": 0.1
-			},
-			"Right Stick X": {
-				"Value": "X1 RightThumbX Axis",
-				"Mult": 1.0,
-				"Deadzone": 0.1
-			},
-			"Right Stick Y": {
-				"Value": "X1 RightThumbY Axis",
-				"Mult": -1.0,
-				"Deadzone": 0.1
-			}
-		}
-	}
+  "_comment": [
+    "Default bindings for the eight slots this package declares - two physical ports and the",
+    "six a multitap adds. The frontend ships no bindings of its own: a package that declares a",
+    "controller says how it is played by default, and the user's own bindings always win.",
+    "",
+    "The face buttons follow the pad's own geometry rather than a keyboard's alphabet:",
+    "Cross is the bottom one and takes the key under the hand, Circle the right, Square",
+    "the left, Triangle the top. The shoulders sit above and below each other the way they",
+    "do on the controller. Analog is a real button on a DualShock 2 - it switches the pad",
+    "between digital and analog mode, which a game can see - so it is bound rather than",
+    "assumed.",
+    "",
+    "Player 1 keeps the keyboard as well as the first pad; players 2 to 8 get a pad each and",
+    "no keys, because eight people at one keyboard is not a thing and any key chosen for them",
+    "would collide with player 1's. The instruments' controls - the frets, the strum bar, the",
+    "Negcon's buttons, Pop'n Music's nine - are declared but unbound: they belong to devices a",
+    "port has to be SET to, and a binding for a device nobody plugged in is a key that does",
+    "nothing."
+  ],
+  "AllTrollers": {
+    "PlayStation 2 Controllers": {
+      "P1 Up": "Up, J1 POV1U, X1 DpadUp",
+      "P1 Down": "Down, J1 POV1D, X1 DpadDown",
+      "P1 Left": "Left, J1 POV1L, X1 DpadLeft",
+      "P1 Right": "Right, J1 POV1R, X1 DpadRight",
+      "P1 Start": "Enter, J1 B10, X1 Start",
+      "P1 Select": "RightShift, J1 B9, X1 Back",
+      "P1 Square": "A, J1 B1, X1 X",
+      "P1 Cross": "Z, J1 B2, X1 A",
+      "P1 Circle": "X, J1 B3, X1 B",
+      "P1 Triangle": "S, J1 B4, X1 Y",
+      "P1 L1": "Q, J1 B5, X1 LeftShoulder",
+      "P1 R1": "W, J1 B6, X1 RightShoulder",
+      "P1 L2": "1, J1 B7, X1 LeftTrigger",
+      "P1 R2": "2, J1 B8, X1 RightTrigger",
+      "P1 L3": "E, J1 B11, X1 LeftStick",
+      "P1 R3": "R, J1 B12, X1 RightStick",
+      "P1 Analog": "Tab, J1 B13",
+      "P2 Up": "J2 POV1U, X2 DpadUp",
+      "P2 Down": "J2 POV1D, X2 DpadDown",
+      "P2 Left": "J2 POV1L, X2 DpadLeft",
+      "P2 Right": "J2 POV1R, X2 DpadRight",
+      "P2 Start": "J2 B10, X2 Start",
+      "P2 Select": "J2 B9, X2 Back",
+      "P2 Square": "J2 B1, X2 X",
+      "P2 Cross": "J2 B2, X2 A",
+      "P2 Circle": "J2 B3, X2 B",
+      "P2 Triangle": "J2 B4, X2 Y",
+      "P2 L1": "J2 B5, X2 LeftShoulder",
+      "P2 R1": "J2 B6, X2 RightShoulder",
+      "P2 L2": "J2 B7, X2 LeftTrigger",
+      "P2 R2": "J2 B8, X2 RightTrigger",
+      "P2 L3": "J2 B11, X2 LeftStick",
+      "P2 R3": "J2 B12, X2 RightStick",
+      "P2 Analog": "J2 B13",
+      "P3 Up": "J3 POV1U, X3 DpadUp",
+      "P3 Down": "J3 POV1D, X3 DpadDown",
+      "P3 Left": "J3 POV1L, X3 DpadLeft",
+      "P3 Right": "J3 POV1R, X3 DpadRight",
+      "P3 Start": "J3 B10, X3 Start",
+      "P3 Select": "J3 B9, X3 Back",
+      "P3 Square": "J3 B1, X3 X",
+      "P3 Cross": "J3 B2, X3 A",
+      "P3 Circle": "J3 B3, X3 B",
+      "P3 Triangle": "J3 B4, X3 Y",
+      "P3 L1": "J3 B5, X3 LeftShoulder",
+      "P3 R1": "J3 B6, X3 RightShoulder",
+      "P3 L2": "J3 B7, X3 LeftTrigger",
+      "P3 R2": "J3 B8, X3 RightTrigger",
+      "P3 L3": "J3 B11, X3 LeftStick",
+      "P3 R3": "J3 B12, X3 RightStick",
+      "P3 Analog": "J3 B13",
+      "P4 Up": "J4 POV1U, X4 DpadUp",
+      "P4 Down": "J4 POV1D, X4 DpadDown",
+      "P4 Left": "J4 POV1L, X4 DpadLeft",
+      "P4 Right": "J4 POV1R, X4 DpadRight",
+      "P4 Start": "J4 B10, X4 Start",
+      "P4 Select": "J4 B9, X4 Back",
+      "P4 Square": "J4 B1, X4 X",
+      "P4 Cross": "J4 B2, X4 A",
+      "P4 Circle": "J4 B3, X4 B",
+      "P4 Triangle": "J4 B4, X4 Y",
+      "P4 L1": "J4 B5, X4 LeftShoulder",
+      "P4 R1": "J4 B6, X4 RightShoulder",
+      "P4 L2": "J4 B7, X4 LeftTrigger",
+      "P4 R2": "J4 B8, X4 RightTrigger",
+      "P4 L3": "J4 B11, X4 LeftStick",
+      "P4 R3": "J4 B12, X4 RightStick",
+      "P4 Analog": "J4 B13",
+      "P5 Up": "J5 POV1U, X5 DpadUp",
+      "P5 Down": "J5 POV1D, X5 DpadDown",
+      "P5 Left": "J5 POV1L, X5 DpadLeft",
+      "P5 Right": "J5 POV1R, X5 DpadRight",
+      "P5 Start": "J5 B10, X5 Start",
+      "P5 Select": "J5 B9, X5 Back",
+      "P5 Square": "J5 B1, X5 X",
+      "P5 Cross": "J5 B2, X5 A",
+      "P5 Circle": "J5 B3, X5 B",
+      "P5 Triangle": "J5 B4, X5 Y",
+      "P5 L1": "J5 B5, X5 LeftShoulder",
+      "P5 R1": "J5 B6, X5 RightShoulder",
+      "P5 L2": "J5 B7, X5 LeftTrigger",
+      "P5 R2": "J5 B8, X5 RightTrigger",
+      "P5 L3": "J5 B11, X5 LeftStick",
+      "P5 R3": "J5 B12, X5 RightStick",
+      "P5 Analog": "J5 B13",
+      "P6 Up": "J6 POV1U, X6 DpadUp",
+      "P6 Down": "J6 POV1D, X6 DpadDown",
+      "P6 Left": "J6 POV1L, X6 DpadLeft",
+      "P6 Right": "J6 POV1R, X6 DpadRight",
+      "P6 Start": "J6 B10, X6 Start",
+      "P6 Select": "J6 B9, X6 Back",
+      "P6 Square": "J6 B1, X6 X",
+      "P6 Cross": "J6 B2, X6 A",
+      "P6 Circle": "J6 B3, X6 B",
+      "P6 Triangle": "J6 B4, X6 Y",
+      "P6 L1": "J6 B5, X6 LeftShoulder",
+      "P6 R1": "J6 B6, X6 RightShoulder",
+      "P6 L2": "J6 B7, X6 LeftTrigger",
+      "P6 R2": "J6 B8, X6 RightTrigger",
+      "P6 L3": "J6 B11, X6 LeftStick",
+      "P6 R3": "J6 B12, X6 RightStick",
+      "P6 Analog": "J6 B13",
+      "P7 Up": "J7 POV1U, X7 DpadUp",
+      "P7 Down": "J7 POV1D, X7 DpadDown",
+      "P7 Left": "J7 POV1L, X7 DpadLeft",
+      "P7 Right": "J7 POV1R, X7 DpadRight",
+      "P7 Start": "J7 B10, X7 Start",
+      "P7 Select": "J7 B9, X7 Back",
+      "P7 Square": "J7 B1, X7 X",
+      "P7 Cross": "J7 B2, X7 A",
+      "P7 Circle": "J7 B3, X7 B",
+      "P7 Triangle": "J7 B4, X7 Y",
+      "P7 L1": "J7 B5, X7 LeftShoulder",
+      "P7 R1": "J7 B6, X7 RightShoulder",
+      "P7 L2": "J7 B7, X7 LeftTrigger",
+      "P7 R2": "J7 B8, X7 RightTrigger",
+      "P7 L3": "J7 B11, X7 LeftStick",
+      "P7 R3": "J7 B12, X7 RightStick",
+      "P7 Analog": "J7 B13",
+      "P8 Up": "J8 POV1U, X8 DpadUp",
+      "P8 Down": "J8 POV1D, X8 DpadDown",
+      "P8 Left": "J8 POV1L, X8 DpadLeft",
+      "P8 Right": "J8 POV1R, X8 DpadRight",
+      "P8 Start": "J8 B10, X8 Start",
+      "P8 Select": "J8 B9, X8 Back",
+      "P8 Square": "J8 B1, X8 X",
+      "P8 Cross": "J8 B2, X8 A",
+      "P8 Circle": "J8 B3, X8 B",
+      "P8 Triangle": "J8 B4, X8 Y",
+      "P8 L1": "J8 B5, X8 LeftShoulder",
+      "P8 R1": "J8 B6, X8 RightShoulder",
+      "P8 L2": "J8 B7, X8 LeftTrigger",
+      "P8 R2": "J8 B8, X8 RightTrigger",
+      "P8 L3": "J8 B11, X8 LeftStick",
+      "P8 R3": "J8 B12, X8 RightStick",
+      "P8 Analog": "J8 B13"
+    }
+  },
+  "AllTrollersAutoFire": {
+    "PlayStation 2 Controllers": {}
+  },
+  "AllTrollersAnalog": {
+    "PlayStation 2 Controllers": {
+      "P1 Left Stick X": {
+        "Value": "X1 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Left Stick Y": {
+        "Value": "X1 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Right Stick X": {
+        "Value": "X1 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Right Stick Y": {
+        "Value": "X1 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Left Stick X": {
+        "Value": "X2 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Left Stick Y": {
+        "Value": "X2 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Right Stick X": {
+        "Value": "X2 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Right Stick Y": {
+        "Value": "X2 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Left Stick X": {
+        "Value": "X3 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Left Stick Y": {
+        "Value": "X3 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Right Stick X": {
+        "Value": "X3 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Right Stick Y": {
+        "Value": "X3 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Left Stick X": {
+        "Value": "X4 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Left Stick Y": {
+        "Value": "X4 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Right Stick X": {
+        "Value": "X4 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Right Stick Y": {
+        "Value": "X4 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Left Stick X": {
+        "Value": "X5 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Left Stick Y": {
+        "Value": "X5 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Right Stick X": {
+        "Value": "X5 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Right Stick Y": {
+        "Value": "X5 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Left Stick X": {
+        "Value": "X6 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Left Stick Y": {
+        "Value": "X6 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Right Stick X": {
+        "Value": "X6 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Right Stick Y": {
+        "Value": "X6 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Left Stick X": {
+        "Value": "X7 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Left Stick Y": {
+        "Value": "X7 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Right Stick X": {
+        "Value": "X7 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Right Stick Y": {
+        "Value": "X7 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Left Stick X": {
+        "Value": "X8 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Left Stick Y": {
+        "Value": "X8 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Right Stick X": {
+        "Value": "X8 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Right Stick Y": {
+        "Value": "X8 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      }
+    }
+  }
 }

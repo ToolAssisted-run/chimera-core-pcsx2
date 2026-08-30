@@ -107,6 +107,7 @@ if [ -z "$bios" ]; then
 	report "input:lag" SKIP "would prove lag frames are counted"
 	report "savedata:exports" SKIP "would prove the cards and NVRAM leave through the channel"
 	report "savedata:roundtrip" SKIP "would prove what is mounted comes back"
+	report "savedata:multitap" SKIP "would prove a multitap reaches six more card slots"
 	report "disc:boots" SKIP "needs a bios as well as a disc"
 	report "disc:equivalence" SKIP "needs a bios as well as a disc"
 	echo
@@ -386,6 +387,33 @@ else
 	report "savedata:roundtrip" PASS "mounted, seen by the machine, and returned unchanged"
 fi
 
+# ---- eight cards behind two multitaps --------------------------------------
+# A multitap turns one socket into four, for memory cards as well as pads, and
+# the six extra card slots are reachable ONLY with one plugged in. So this asks
+# for all eight and expects all eight - and then asks with the multitaps off and
+# expects the console's own two, which is what says the multitap setting is
+# doing something rather than the cards being on regardless.
+sd8="$work/savedata8"
+allcards='"memcard1":true,"memcard2":true,"memcard3":true,"memcard4":true,
+"memcard5":true,"memcard6":true,"memcard7":true,"memcard8":true'
+cardnames() { # <settings json> -> the exported card files, sorted, space separated
+	rm -rf "$sd8"; mkdir -p "$sd8"
+	printf '%s' "$1" > "$wd/settings"
+	"$nat/run-native" "$wd" --frames 60 --savedata-out "$sd8" >/dev/null 2>&1
+	ls "$sd8" 2>/dev/null | grep '^memcard' | sort | tr '\n' ' ' | sed 's/ $//'
+}
+eight="$(cardnames "{\"multitap1\":true,\"multitap2\":true,$allcards}")"
+two="$(cardnames "{$allcards}")"
+printf '{}' > "$wd/settings"
+want8="memcard1.ps2 memcard2.ps2 memcard3.ps2 memcard4.ps2 memcard5.ps2 memcard6.ps2 memcard7.ps2 memcard8.ps2"
+if [ "$eight" != "$want8" ]; then
+	report "savedata:multitap" FAIL "with two multitaps the machine exported [$eight]"
+elif [ "$two" != "memcard1.ps2 memcard2.ps2" ]; then
+	report "savedata:multitap" FAIL "with no multitap the machine exported [$two], want the console's own two"
+else
+	report "savedata:multitap" PASS "eight cards behind two multitaps, and two without them"
+fi
+
 # ---- the pad, as the machine sees it ----------------------------------------
 # tests/own/padtest.elf draws every button of a DualShock 2 with the pressure
 # the machine is reading. Hold the button a package DECLARES as "Circle" and the
@@ -398,8 +426,10 @@ fi
 padelf="$root/tests/own/padtest.elf"
 if [ ! -f "$padelf" ]; then
 	report "pad:mapping" SKIP "tests/own/padtest.elf is missing"
+	report "pad:ports" SKIP "tests/own/padtest.elf is missing"
 elif [ -z "$bios" ]; then
 	report "pad:mapping" SKIP "needs a bios"
+	report "pad:ports" SKIP "needs a bios"
 else
 	pd="$work/pad"
 	mkdir -p "$pd"
@@ -434,6 +464,28 @@ else
 		else
 			report "pad:mapping" FAIL "$wrong"
 		fi
+
+		# ---- the second port ------------------------------------------------
+		# padtest draws a block per port, so two pads and two DIFFERENT buttons
+		# held at once answer both halves of the question in one run: each
+		# port's input reached that port, and neither reached the other. A
+		# single run rather than sixteen because a PS2 interprets everything and
+		# five hundred frames is not cheap.
+		#
+		# P2's block starts at wire 37, not 17: the two physical ports carry the
+		# instruments' controls as well as the pad's.
+		printf '{"port1":"dualshock2","port2":"dualshock2"}' > "$pd/settings"
+		"$nat/run-native" "$pd" --frames 400 --screenshot "$work/pad2.idle.tga" >/dev/null 2>&1
+		"$nat/run-native" "$pd" --frames 500 --press 400:100:8 --press 400:100:44 \
+			--screenshot "$work/pad2.held.tga" >/dev/null 2>&1
+		p1="$(python3 "$here/tests/pad-cells.py" "$work/pad2.idle.tga" "$work/pad2.held.tga" 0 | tr '\n' ' ' | sed 's/ $//')"
+		p2="$(python3 "$here/tests/pad-cells.py" "$work/pad2.idle.tga" "$work/pad2.held.tga" 1 | tr '\n' ' ' | sed 's/ $//')"
+		if [ "$p1" = "Circle" ] && [ "$p2" = "Cross" ]; then
+			report "pad:ports" PASS "Circle on port 1 and Cross on port 2 reach their own pad and no other"
+		else
+			report "pad:ports" FAIL "port 1 shows [${p1:-nothing}] and port 2 shows [${p2:-nothing}], want Circle and Cross"
+		fi
+		printf '{}' > "$pd/settings"
 	fi
 fi
 

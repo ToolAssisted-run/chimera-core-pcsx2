@@ -19,10 +19,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* the wire this core declares: one DualShock 2 - the d-pad, start and select,
+/* The wire this core declares: EIGHT slots, in PCSX2's unified-slot order.
+ * Unified 0 and 1 are the two physical ports and 2..7 are the six a multitap
+ * adds, which is the order a game sees them in.
+ *
+ * A slot's block is the DualShock 2's seventeen - the d-pad, start and select,
  * the four face buttons, the four shoulders, the two stick clicks and the
- * analog toggle (waterbox.config "input.buttons") */
-#define GATE_BTN_COUNT 17
+ * analog toggle - and the two PHYSICAL ports carry twenty more for the
+ * instruments, so the blocks are NOT the same size. GATE_SLOT_BASE is the only
+ * honest way to index one.
+ *
+ *   0 Up  1 Down  2 Left  3 Right  4 Start  5 Select
+ *   6 Square  7 Cross  8 Circle  9 Triangle
+ *   10 L1  11 R1  12 L2  13 R2  14 L3  15 R3  16 Analog
+ *   17..20 Negcon A B I II          21..22 Strum Up Down
+ *   23..27 frets green red yellow blue orange
+ *   28..36 pop'n white/yellow/green/blue left, red, blue/green/yellow/white right
+ *
+ * and per slot four axes (LX LY RX RY), the two ports four more (Dial, Twist,
+ * Whammy, Tilt). */
+#define GATE_DS2_BTNS 17
+#define GATE_PORT_BTNS 37
+#define GATE_PORTS 2
+#define GATE_SLOTS 8
+#define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS))
+#define GATE_SLOT_BASE(slot) \
+	((slot) < GATE_PORTS ? (slot) * GATE_PORT_BTNS \
+		: GATE_PORT_BTNS * GATE_PORTS + ((slot) - GATE_PORTS) * GATE_DS2_BTNS)
 
 /* how many scripted presses one run may carry (--press) */
 #define GATE_MAX_PRESSES 32
@@ -88,18 +111,30 @@ static uint64_t gate_fnv(uint64_t h, const void *p, size_t n)
 
 /* deterministic P1 pad pattern, identical in both drivers, so the input
  * path is part of the comparison; Power/Reset stay untouched */
-static void gate_exercise_pad(long frame, uint8_t *buttons)
+/* One SLOT's worth of pad, driven from a deterministic schedule. `slot` is
+ * 0..7 and picks both the block of wires written and a different schedule, so
+ * "player 2 held something" is a distinguishable event from "player 1 did". */
+static void gate_exercise_slot(long frame, int slot, uint8_t *buttons)
 {
-	uint64_t x = (uint64_t)frame * 6364136223846793005ULL + 1442695040888963407ULL;
+	uint64_t x = (uint64_t)(frame + (long)slot * 7919) * 6364136223846793005ULL
+		+ 1442695040888963407ULL;
 	x ^= x >> 33;
-	/* the console switches (1..5) and player one's pad (6..10); POWER is left
-	 * alone, since resetting the machine every few frames proves nothing */
+	uint8_t *b = &buttons[GATE_SLOT_BASE(slot)];
+	/* the d-pad, the four face buttons, start and select: the ten a DualShock 2
+	 * has that every device in every slot also has. The instruments' buttons
+	 * belong to devices a port has to be SET to and are left alone here. */
+	static const int wires[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 	for (int k = 0; k < 10; k++)
-		buttons[1 + k] = (x >> k) & 1;
+		b[wires[k]] = (x >> k) & 1;
 	/* holding UP+DOWN or LEFT+RIGHT is not a pad state a real controller
 	 * produces and some games misbehave; drop the contradictions */
-	if (buttons[6] && buttons[7]) buttons[7] = 0;
-	if (buttons[8] && buttons[9]) buttons[9] = 0;
+	if (b[0] && b[1]) b[1] = 0;
+	if (b[2] && b[3]) b[3] = 0;
+}
+
+static void gate_exercise_pad(long frame, uint8_t *buttons)
+{
+	gate_exercise_slot(frame, 0, buttons);
 }
 
 /* ---- .sol parsing (quickerGPGX's movie format) ---- */
@@ -264,17 +299,12 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 		else if (o->exercise)
 		{
 			gate_exercise_pad(f, buttons);
-			// a second pad only exists on a wire wide enough to hold one;
-			// this core declares a single controller, so the block below is
-			// unreachable here and the bound says so out loud
-			if (o->exercisePad >= 2 && o->exercisePad <= 8
-				&& 2 + (o->exercisePad - 1) * 12 + 12 <= GATE_BTN_COUNT)
-			{
-				uint8_t extra[GATE_BTN_COUNT];
-				memset(extra, 0, sizeof extra);
-				gate_exercise_pad(f + 7919, extra); /* a shifted schedule */
-				memcpy(&buttons[2 + (o->exercisePad - 1) * 12], &extra[2], 12);
-			}
+			/* ...and one more slot, on its own schedule. This is how "player 2
+			 * held something and player 1 did not" becomes a machine state
+			 * different from the other way round, which is the only way to show
+			 * that a slot's input reaches THAT slot. */
+			if (o->exercisePad >= 2 && o->exercisePad <= GATE_SLOTS)
+				gate_exercise_slot(f, o->exercisePad - 1, buttons);
 		}
 
 		for (int pi = 0; pi < o->presses; pi++)
