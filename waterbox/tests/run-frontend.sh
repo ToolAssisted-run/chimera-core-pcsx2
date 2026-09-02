@@ -197,10 +197,10 @@ else
 fi
 
 # --- the bindings the package ships must become the frontend's defaults ------
-python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "DualShock 2"
+python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "PlayStation 2 Controllers"
 if run_frontend "keys" "$work/config.keys.ini" 1; then
 	if python3 "$here/check-keybinds.py" "$work/config.keys.ini" \
-		"$wb/default_keybinds.json" "DualShock 2" > "$work/keys.txt" 2>&1; then
+		"$wb/default_keybinds.json" "PlayStation 2 Controllers" > "$work/keys.txt" 2>&1; then
 		report "keybinds" PASS "$(cat "$work/keys.txt")"
 	else
 		report "keybinds" FAIL "$(head -1 "$work/keys.txt")"

@@ -1,0 +1,31 @@
+diff --git a/pcsx2/x86/ix86-32/iR5900.cpp b/pcsx2/x86/ix86-32/iR5900.cpp
+index fd9ead867..a9772fdb1 100644
+--- a/pcsx2/x86/ix86-32/iR5900.cpp
++++ b/pcsx2/x86/ix86-32/iR5900.cpp
+@@ -2050,8 +2050,16 @@ static void memory_protect_recompiled_code(u32 startpc, u32 size)
+ 	// The EENULL thread context register is stored @ 0x81000-....
+ 	const bool contains_thread_stack = ((startpc >> 12) == 0x81) || ((startpc >> 12) == 0x80001);
+ 
++	// chimera: without fastmem there is no page fault handler (vtlb_Core_Alloc
++	// installs it for the fastmem area alone), so a write to a write-protected
++	// page would kill the process instead of clearing a block. Every page is
++	// therefore a PERMANENT manual page: blocks verify their own source before
++	// running, nothing is ever write-protected, and nothing ever faults. The
++	// self-check is the same one thread-stack pages always use.
++	const bool no_fault_handler = !EmuConfig.Cpu.Recompiler.EnableFastmem;
++
+ 	// note: blocks are guaranteed to reside within the confines of a single page.
+-	const vtlb_ProtectionMode PageType = contains_thread_stack ? ProtMode_Manual : mmap_GetRamPageInfo(inpage_ptr);
++	const vtlb_ProtectionMode PageType = (contains_thread_stack || no_fault_handler) ? ProtMode_Manual : mmap_GetRamPageInfo(inpage_ptr);
+ 
+ 	switch (PageType)
+ 	{
+@@ -2089,7 +2097,7 @@ static void memory_protect_recompiled_code(u32 startpc, u32 size)
+ 
+ 			// (ideally, perhaps, manual_counter should be reset to 0 every few minutes?)
+ 
+-			if (!contains_thread_stack && manual_counter[inpage_ptr >> 12] <= 3)
++			if (!contains_thread_stack && !no_fault_handler && manual_counter[inpage_ptr >> 12] <= 3)
+ 			{
+ 				// Counted blocks add a weighted (by block size) value into manual_page each time they're
+ 				// run.  If the block gets run a lot, it resets and re-protects itself in the hope

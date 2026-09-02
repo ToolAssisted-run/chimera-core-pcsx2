@@ -443,16 +443,22 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++)
 		si.SetStringValue("Folders", folders[i], ".");
 
-	/* Interpreters, all of them, and no fastmem.
-	 *
-	 * Fastmem reserves a 4GB window so a recompiler can address PS2 memory
-	 * without a lookup. A sandbox has no such window, and with nothing
-	 * recompiling there is nothing to speed up: the interpreters go through
-	 * the vtlb's page table either way. */
-	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEE", false);
-	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableIOP", false);
-	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU0", false);
-	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU1", false);
+	/* Which CPU cores run the machine: PCSX2's recompilers or its
+	 * interpreters. Different machines - the rec's EE floating point is not
+	 * the interpreter's - so the choice is a sync setting the movie cites.
+	 * Fastmem stays off either way: it is a 4GB reservation plus a page
+	 * fault handler, and the sandbox has neither; the recompilers go through
+	 * the vtlb like the interpreters do, and their self-modifying-code
+	 * detection runs fault-free (see the manual-protection patch). */
+	{
+		char cpuCore[24] = "recompiler";
+		wbx_setting_str("cpu_core", cpuCore, sizeof(cpuCore));
+		const bool recs = strcmp(cpuCore, "recompiler") == 0;
+		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEE", recs);
+		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableIOP", recs);
+		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU0", recs);
+		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU1", recs);
+	}
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEECache", false);
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableFastmem", false);
 
@@ -735,11 +741,16 @@ ECL_EXPORT int Init(void)
 	 * settings have reached EmuConfig - so the two decisions that change what
 	 * gets allocated have to be made here, by hand, or the sandbox is asked for
 	 * four gigabytes of fastmem it does not have. */
-	EmuConfig.Cpu.Recompiler.EnableFastmem = false;
-	EmuConfig.Cpu.Recompiler.EnableEE = false;
-	EmuConfig.Cpu.Recompiler.EnableIOP = false;
-	EmuConfig.Cpu.Recompiler.EnableVU0 = false;
-	EmuConfig.Cpu.Recompiler.EnableVU1 = false;
+	{
+		char cpuCore[24] = "recompiler";
+		wbx_setting_str("cpu_core", cpuCore, sizeof(cpuCore));
+		const bool recs = strcmp(cpuCore, "recompiler") == 0;
+		EmuConfig.Cpu.Recompiler.EnableFastmem = false;
+		EmuConfig.Cpu.Recompiler.EnableEE = recs;
+		EmuConfig.Cpu.Recompiler.EnableIOP = recs;
+		EmuConfig.Cpu.Recompiler.EnableVU0 = recs;
+		EmuConfig.Cpu.Recompiler.EnableVU1 = recs;
+	}
 
 	if (!VMManager::Internal::CPUThreadInitialize())
 	{

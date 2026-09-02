@@ -135,6 +135,28 @@ else
 	report "bios:equivalence" FAIL "$(diff "$work/nat.txt" "$work/box.txt" | tr '\n' ' ' | head -c 120)"
 fi
 
+# The OTHER cpu core: every leg above ran the recompilers (the default), so
+# the interpreters get their own pair - a different machine the movie can
+# cite, held equal across flavors and lossless under rerecord.
+wi="$work/bios-int"
+mkdir -p "$wi"
+cp "$bios" "$wi/bios.bin"
+printf '{"cpu_core":"interpreter"}' > "$wi/settings"
+if ! "$nat/run-native" "$wi" --frames 120 2>/dev/null | digests > "$work/int-n.txt"; then
+	report "cpu:interpreter" FAIL "native runner error"
+elif ! "$nat/run-wbx" "$gst/core.wbx" "$wi" --frames 120 2>/dev/null | digests > "$work/int-g.txt"; then
+	report "cpu:interpreter" FAIL "waterbox runner error"
+elif cmp -s "$work/int-n.txt" "$work/int-g.txt"; then
+	report "cpu:interpreter" PASS "120 frames, native == waterboxed under the interpreters"
+else
+	report "cpu:interpreter" FAIL "flavors differ under the interpreters"
+fi
+if "$nat/run-wbx" "$gst/core.wbx" "$wi" --frames 60 --rerecord 2>/dev/null | digests > "$work/int-rr.txt" 	&& "$nat/run-wbx" "$gst/core.wbx" "$wi" --frames 60 2>/dev/null | digests > "$work/int-pl.txt" 	&& [ -s "$work/int-pl.txt" ] && cmp -s "$work/int-rr.txt" "$work/int-pl.txt"; then
+	report "cpu:interpreter-rerecord" PASS "save+load around every frame changes nothing"
+else
+	report "cpu:interpreter-rerecord" FAIL "rerecord differs under the interpreters"
+fi
+
 # Turbo: the display stage switched off for the first half of the run and back
 # on for the second. Everything the EE can see - and every picture of that
 # second half - must be what it would have been.
