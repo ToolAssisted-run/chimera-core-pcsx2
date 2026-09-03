@@ -1,0 +1,40 @@
+diff --git a/pcsx2/CDVD/CDVD.h b/pcsx2/CDVD/CDVD.h
+index e485ff2..292c1e6 100644
+--- a/pcsx2/CDVD/CDVD.h
++++ b/pcsx2/CDVD/CDVD.h
+@@ -187,6 +187,11 @@ extern void cdvdWrite(u8 key, u8 rt);
+ extern void cdvdGetDiscInfo(std::string* out_serial, std::string* out_elf_path, std::string* out_version, u32* out_crc,
+ 	CDVDDiscType* out_disc_type);
+ extern u32 cdvdGetElfCRC(const std::string& path);
++
++// The video mode the disc declares in SYSTEM.CNF ("PAL" or "NTSC"), or empty
++// when there is no disc or the file does not say. Kept for the frontend, which
++// has to know the machine's field rate before the game has programmed the GS.
++extern std::string cdvdDiscVideoMode;
+ extern bool cdvdLoadElf(ElfObject* elfo, const std::string_view elfpath, bool isPSXElf, Error* error);
+ extern bool cdvdLoadDiscElf(ElfObject* elfo, IsoReader& isor, const std::string_view elfpath, bool isPSXElf, Error* error);
+ 
+diff --git a/pcsx2/CDVD/CDVD.cpp b/pcsx2/CDVD/CDVD.cpp
+index 2d5724a..1ac96a0 100644
+--- a/pcsx2/CDVD/CDVD.cpp
++++ b/pcsx2/CDVD/CDVD.cpp
+@@ -493,8 +493,11 @@ u32 cdvdGetElfCRC(const std::string& path)
+ 	return elfo.GetCRC();
+ }
+ 
++std::string cdvdDiscVideoMode;
++
+ static CDVDDiscType GetPS2ElfName(IsoReader& isor, std::string* name, std::string* version, Error* error)
+ {
++	cdvdDiscVideoMode.clear();
+ 	CDVDDiscType retype = CDVDDiscType::Other;
+ 	name->clear();
+ 	version->clear();
+@@ -535,6 +538,7 @@ static CDVDDiscType GetPS2ElfName(IsoReader& isor, std::string* name, std::strin
+ 		else if (key == "VMODE")
+ 		{
+ 			DevCon.WriteLn(Color_Blue, fmt::format("(SYSTEM.CNF) Disc region type = {}", value));
++			cdvdDiscVideoMode = value;
+ 		}
+ 		else if (key == "VER")
+ 		{

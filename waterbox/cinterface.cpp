@@ -692,6 +692,8 @@ extern "C" {
 
 ECL_EXPORT const char* GetLoadError(void) { return g_loadError; }
 
+static void DecideFieldRate(bool verbose);
+
 ECL_EXPORT int Init(void)
 {
 	g_loadError[0] = '\0';
@@ -848,6 +850,8 @@ ECL_EXPORT int Init(void)
 		snprintf(g_loadError, sizeof(g_loadError), "%s", error.GetDescription().c_str());
 		return 0;
 	}
+	/* the machine has read its disc's SYSTEM.CNF by now, or has none */
+	DecideFieldRate(verbose);
 
 	VMManager::SetState(VMState::Running);
 	g_loaded = true;
@@ -1022,9 +1026,45 @@ ECL_EXPORT int GetVideoHeight(void) { return g_videoHeight; }
 ECL_EXPORT int16_t* GetAudio(void) { return g_soundOut; }
 ECL_EXPORT int GetAudioSampleCount(void) { return g_nsamples; }
 
-/* An NTSC PS2 scans out at 59.94Hz, as the exact ratio rather than a float. */
-ECL_EXPORT int GetVsyncNumerator(void) { return 60000; }
-ECL_EXPORT int GetVsyncDenominator(void) { return 1001; }
+/* The field rate, as an exact ratio: an NTSC PS2 scans out at 60000/1001 Hz,
+ * a PAL one at 50. The frontend asks once, after Init, before the game has
+ * programmed the GS - so the answer comes from what is known then: the video
+ * mode the disc declares in SYSTEM.CNF, or, with no disc to say, the region
+ * of the bios the machine boots (Europe and Russia are PAL consoles). A game
+ * that later switches modes (a PAL60 option) is not followed; the rate the
+ * movie cites is the machine's, not the game's. Answering 60 for every
+ * machine ran a PAL game a fifth too fast, and its audio a fifth too high
+ * (issue #31). */
+static int g_vsyncNum = 60000;
+static int g_vsyncDen = 1001;
+
+static void DecideFieldRate(bool verbose)
+{
+	bool pal = false;
+	const char* why = "NTSC";
+	if (!cdvdDiscVideoMode.empty())
+	{
+		pal = cdvdDiscVideoMode == "PAL";
+		why = pal ? "the disc says PAL" : "the disc says NTSC";
+	}
+	else
+	{
+		/* the setting's value names the dump: ps2-0220e-20060210 - the letter
+		 * after the version is the region */
+		char bios[64] = "";
+		wbx_setting_str("bios", bios, sizeof(bios));
+		const char region = strlen(bios) > 8 ? bios[8] : '\0';
+		pal = region == 'e' || region == 'r';
+		why = pal ? "no disc; a PAL-region bios" : "no disc; an NTSC-region bios";
+	}
+	g_vsyncNum = pal ? 50 : 60000;
+	g_vsyncDen = pal ? 1 : 1001;
+	if (verbose)
+		fprintf(stderr, "chimera: field rate %d/%d (%s)\n", g_vsyncNum, g_vsyncDen, why);
+}
+
+ECL_EXPORT int GetVsyncNumerator(void) { return g_vsyncNum; }
+ECL_EXPORT int GetVsyncDenominator(void) { return g_vsyncDen; }
 
 ECL_EXPORT int InputWasRead(void) { return g_inputRead; }
 
