@@ -62,6 +62,11 @@
 #include "common/FileSystem.h"
 #include "fmt/format.h"
 #include "common/SettingsInterface.h"
+#ifdef CHIMERA_GUEST_GL
+#include "GS/Renderers/Common/GSDevice.h"
+#include "glad/gl.h"
+#include <optional>
+#endif
 
 /* ---------------------------------------------------------------------------
  * What the frontend sees. A PS2's picture has no fixed size - the display
@@ -953,6 +958,42 @@ ECL_EXPORT void SetAxis(int index, int value)
 		g_axes[index] = static_cast<int16_t>(value);
 }
 
+#ifdef CHIMERA_GUEST_GL
+extern "C" uint64_t chimera_gl_context_id(void);
+
+/* The GL objects the OpenGL renderer holds are NAMES a particular GL
+ * context handed out, and a whole-machine savestate carries those names
+ * into whatever session loads it - where the context that owned them is
+ * gone. miniBox answers which context the calls are landing on
+ * (chimera_gl_context_id); comparing it with the one these objects came
+ * from is the only way to notice - the driver refuses the calls and the
+ * guest is never told - and GSreopen's own "we lost the device" path
+ * (recreate the device, keep the renderer, so textures re-upload from GS
+ * memory) is the rebuild. Zero means "cannot tell" - no bridge, or the
+ * softpipe - so nothing moved. The saved id lives in a static the
+ * savestate restores like the rest of guest memory: a state made in one
+ * session mismatches the next and rebuilds; loaded into the same session
+ * it matches and this is a no-op. Safe here because the GS runs inline
+ * (patch 0004), so this is the GL thread and outside any device method. */
+static uint64_t s_chimera_gl_context = 0;
+static void ChimeraCheckGLContext()
+{
+	if (!g_gs_device || g_gs_device->GetRenderAPI() != RenderAPI::OpenGL)
+		return;
+	const uint64_t live = chimera_gl_context_id();
+	if (live == 0 || live == s_chimera_gl_context)
+		return;
+	if (s_chimera_gl_context != 0)
+	{
+		Console.WriteLn("chimera: GL objects came from context %llu, now %llu; rebuilding",
+			(unsigned long long)s_chimera_gl_context, (unsigned long long)live);
+		GSreopen(true, false, GSConfig.Renderer, std::nullopt);
+		while (glGetError() != GL_NO_ERROR) {}
+	}
+	s_chimera_gl_context = live;
+}
+#endif
+
 ECL_EXPORT void FrameAdvance(uint64_t packed)
 {
 	/* Two input channels, and a frame is the UNION of them: the first 64
@@ -977,6 +1018,9 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 
 	/* One frame: arm PCSX2's own frame advance, run, and return when the next
 	 * vsync boundary pauses the machine. */
+#ifdef CHIMERA_GUEST_GL
+	ChimeraCheckGLContext();
+#endif
 	VMManager::FrameAdvance(1);
 	VMManager::Execute();
 
