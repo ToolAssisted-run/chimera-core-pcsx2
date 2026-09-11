@@ -142,6 +142,43 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-09-11** `renderer` defaults to `software` again. The hardware path is
+  the one that has gone wrong in use - the re-recording picture degradation
+  reported as chimera issues 55 and 56, and on Windows the fact that a build or
+  a machine that cannot give the bridge a context falls back to a Mesa softpipe
+  which dies after about a thousand frames - and none of that can reach a
+  rasteriser that runs inside the sandbox. The cost is measured rather than
+  guessed. 2401 frames of Gran Turismo 4 on a GTX 1060: 20.55s and 21.01s for
+  the software rasteriser against 9.63s for `opengl-hw`, so a little over twice
+  the time. What that buys is a picture that is a promise: the two software runs
+  are byte-identical at frames 900, 1500 and 2400, and a third run with no
+  settings override at all - the new default doing the choosing - matched them
+  byte for byte as well. And the machine never noticed which renderer drew: the
+  EE RAM dumped after 2401 frames is the same under software and under
+  `opengl-hw`. `opengl-hw` is still there, and still one setting away.
+
+  The setting's own description needed the same repair: it said "'software' ...
+  and the default" in its first sentence and "It is the default" about
+  `opengl-hw` four sentences later, because the default was flipped once before
+  and the prose was left behind. It is rewritten, and the claim that software is
+  "about five times faster than the other two" is gone with it - true of the
+  softpipe, and exactly backwards against a GPU, which is why the number
+  measured above is written down instead.
+
+- **2026-09-11** A report that the OpenGL hardware renderer shows a pitch-black
+  picture did NOT reproduce here, and `drawEveryFrame` is not what it is. The
+  A/B is direct: the installed package was repacked with `drawEveryFrame` set
+  to false and run beside the real one, same frontend, same movie, same
+  destination, and the two pictures agree - so the flag added earlier today
+  neither causes a black screen nor hides one. Nor does anything else, on this
+  box: headless with and without the readback, a twenty-pass rewind loop, the
+  frontend headless and in a real window and fullscreen, a bare disc and a
+  project with the piano roll open, a core rebooted twice in one process. All of
+  them drew. The one thing that did come out black every time was a frame that
+  is black in the movie anyway, which is worth saying out loud because it cost
+  two false alarms: check the ground truth for the frame AND for the input
+  before believing a black screenshot.
+
 - **2026-09-11** `renderWarmupFrames: 10` withdrawn; `drawEveryFrame: true` in
   its place. Yesterday's warm-up was measured on Marvel vs Capcom 2, which
   redraws its whole screen every frame, and there five drawn frames really are
