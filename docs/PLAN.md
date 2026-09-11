@@ -142,6 +142,20 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-09-11** `renderWarmupFrames: 10` withdrawn; `drawEveryFrame: true` in
+  its place. Yesterday's warm-up was measured on Marvel vs Capcom 2, which
+  redraws its whole screen every frame, and there five drawn frames really are
+  enough to put the display stage back where a straight playback would have left
+  it. Gran Turismo 4 is not that game: at three different points in its boot the
+  ten declared frames still left 1.3% to 2.8% of the picture wrong, and Flycast
+  found the unbounded case outright - a title screen painted by ONE frame is
+  simply lost if that frame is skipped. So the core is no longer told to stop
+  drawing at all; turbo skips the readback and nothing else. 1500 frames of
+  Gran Turismo 4 on a GTX 1060: 8.28s turbo, 8.30s drawing, 9.75s drawing AND
+  reading back - the drawing is 0.017 ms a frame and the readback 0.98 ms, so
+  this gives up 0.3% of a seek's speed to be exactly right. Three rewinds at
+  frames 900, 1500 and 2400 are now byte-identical to a straight run.
+
 - **2026-08-30** Eight controller slots and eight memory cards. `port1`..`port8`
   choose a device, `multitap1`/`multitap2` plug in the taps that make slots 3-8
   reachable at all, and `memcard1`..`memcard8` say which sockets hold a card.
