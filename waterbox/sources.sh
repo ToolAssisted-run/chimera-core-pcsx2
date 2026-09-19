@@ -20,8 +20,14 @@
 #                                                 recompilers: this core
 #                                                 interprets (docs/PLAN.md)
 #   MTVU.cpp                                      a second CPU thread
-#   ImGui/, Input/, PAD/, USB/, DEV9/             a frontend already exists,
+#   ImGui/, Input/, PAD/, DEV9/                   a frontend already exists,
 #   Achievements*, Recording/, Debug*             and a sandbox has no sockets
+#   USB/usb-{pad,mic,msd,hid,eyetoy,printer}/     peripherals that exist to
+#                                                 talk to hardware a sandbox
+#                                                 has none of. The OHCI
+#                                                 controller and the GunCon 2
+#                                                 ARE here - a PS2 light gun
+#                                                 hangs off USB, not off SIO
 #   SPU2/ backends, CDVD/ host drives             no audio device, no real drive
 #
 # Prints paths relative to the repository root, one per line.
@@ -62,6 +68,17 @@ core_srcs() {
 	# folder memory card, which reads a directory of loose files through a yaml
 	# index. A memory card here is a file the save-data channel carries.
 	find "$p/pcsx2/SIO" -name '*.cpp' | grep -v -e "MemoryCardFolder"
+	# USB: the console's two ports, the OHCI controller behind them, and the
+	# ONE device this core offers - Namco's GunCon 2. A PS2 light gun is not a
+	# controller: it hangs off USB rather than off the SIO bus, so reaching it
+	# means bringing the host controller with it.
+	# The rest of the device registry stays out (patch 0022): a webcam, a
+	# microphone, a printer, a mass storage device. qemu-usb's HID class and
+	# its keymap go with them - the keyboard and the mouse are the only things
+	# that read either.
+	find "$p/pcsx2/USB" -maxdepth 1 -name '*.cpp'
+	find "$p/pcsx2/USB/qemu-usb" -name '*.cpp' | grep -v -e "/hid.cpp" -e "input-keymap"
+	echo "$p/pcsx2/USB/usb-lightgun/guncon2.cpp"
 	find "$p/pcsx2/x86" -name '*.cpp'
 	# CDVD: the drive and every image reader (iso, chd, cso/zso), but not the
 	# HOST's optical drive - a sandbox has no such thing, and a movie cannot

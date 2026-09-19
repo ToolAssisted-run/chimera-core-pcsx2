@@ -106,6 +106,9 @@ than a precondition.
   (`waterbox.config`, the file slots, the DualShock 2's default bindings, the
   licences and the deterministic zip) loads in Chimera, and 200 frames of a
   game inside the frontend are byte-identical to the native reference.
+- **M7 - the light gun.** DONE 2026-09-19. The GunCon 2, on the console's own
+  USB bus, aimed from the movie's axes and never from a mouse. What it cost
+  and what it could not prove are in the log.
 
 ## The package
 
@@ -141,6 +144,70 @@ The first 29 frames of a cold boot are lag frames - the IOP has not loaded its
 pad driver - and the count stops growing the moment it has.
 
 ## Log
+
+- **2026-09-19** The GunCon 2 (chimera issue 71). A PlayStation 2 light gun is
+  now a device a port can be set to, and a movie carries where it was pointing
+  like it carries a stick.
+
+  **It is not a controller, and that is the whole shape of the work.** Every
+  other device this core offers hangs off the SIO bus with the pads; Namco's
+  gun plugs into a USB socket, and PCSX2 emulates it behind an OHCI host
+  controller in `pcsx2/USB/` - a subsystem this core had stubbed out entirely
+  ("two ports with nothing in them"), because a sandbox has no business
+  emulating a webcam or a mass storage device. So the stub is gone and the
+  bus is real: `USB.cpp`, the four qemu-usb files that are the host controller,
+  and `usb-lightgun/guncon2.cpp`. What is still absent is the rest of the
+  device registry, and it has to be absent explicitly: naming a device in
+  `RegisterDevice::Register` is what COMPILES it, so a build that reached the
+  gun through upstream's registry would carry a JPEG decoder, an audio device
+  and a printer with it. Patch 0022 registers one device.
+
+  **`port1`/`port2` gained `guncon2`, and the setting still means one PLAYER.**
+  Choosing it puts a gun in the USB socket of that number and leaves the
+  CONTROLLER socket of that number empty, which is what a real console with a
+  light gun on it looks like. One setting rather than two because a project
+  says what player 1 is holding; the number is kept as well as the choice,
+  because a few games only look for the gun on USB port 2.
+
+  **The aim comes from the movie, and it had to be taken away from the mouse.**
+  Upstream asks `InputManager` where the host's pointer is right now and
+  converts it out of the emulator window's coordinates. That is the one thing a
+  movie cannot carry, so patch 0022 replaces both halves with a call back into
+  this core: the frontend's two absolute axes, -32768..32767 laid over the
+  picture, arrive as the 0..1 the window conversion would have produced. The
+  off-screen shot - the trigger pulled away from the screen, which every
+  light-gun game reads as a reload - is a declared BUTTON rather than a
+  coordinate, because a movie needs a way to say it out loud.
+
+  **A lag frame with a gun in your hands.** The lag hook lived in
+  `PadDualshock2::Poll`, which never runs on a machine holding a gun: every
+  frame would have been a lag frame. It now also sits where the gun answers its
+  interrupt endpoint, which is where such a machine looks at its input.
+
+  **The wire is keyed by NAMES, and a missing one is a refusal.** The gun's
+  bind indices are an enum private to upstream's own file, so the core resolves
+  its twelve controls out of `GunCon2Device::Bindings` by name at Init. A name
+  that stopped matching would be a movie column the machine silently ignores -
+  a recording that looks right and plays wrong - so the load stops and says
+  which control is gone.
+
+  **THE MOVIE FORMAT CHANGED AGAIN**, as it must whenever a physical port grows
+  a device: 188 button columns and 44 axes, from 176 and 40. The two physical
+  ports are 43 buttons and 10 axes each now.
+
+  And the old trap caught the gate rather than the core this time: `pad:ports`
+  pressed wire 44 for player 2's Cross because the second port's block used to
+  start at 37. A slot's block is still not a multiplication, and a hard-coded
+  base in a TEST is as wrong as one in the wire.
+
+  **What this could not prove, and why it reports SKIP.** That the position and
+  the trigger reach a GAME. Nothing on a PlayStation 2 polls a USB device on
+  its own: a program loads the USB driver, opens the gun and asks it where it
+  is pointing, and until then the gun is invisible to the machine's memory -
+  measured, not assumed, and it is why plugging a gun into USB port 2 changes
+  no digest at all. `padtest.elf`, the only program this repository may ship,
+  reads the controller bus. `gun:aims` waits for one of the dozen or so discs
+  the gun was built for.
 
 - **2026-09-11** `renderer` defaults to `software` again. The hardware path is
   the one that has gone wrong in use - the re-recording picture degradation
@@ -350,6 +417,13 @@ straight to the browser. Guest and native produce the same kilobyte.
   machine reports it, and the wire from a frontend column to the pad's own
   input index is written down. What nothing here does is play a game with one -
   whether a whammy bar FEELS right is a question only Guitar Hero can answer.
+- **The light gun's last link is unproven.** A GunCon 2 is on the USB bus, its
+  twelve controls reach the emulated gun and a machine holding one is
+  byte-identical in the sandbox - but nothing here has watched a game read the
+  position off it, because no disc built for the gun is on this machine and a
+  PS2 polls USB only once a program has loaded the driver. The gate says so
+  (`gun:aims` SKIP) rather than implying otherwise.
+
 - **The pressure modifier is not offered.** A DualShock 2's buttons are
   pressure-sensitive and `PAD_PRESSURE` scales how hard the host is pressing
   them. It is a host convenience rather than a control the machine has, so it

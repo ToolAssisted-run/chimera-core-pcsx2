@@ -108,6 +108,10 @@ if [ -z "$bios" ]; then
 	report "savedata:exports" SKIP "would prove the cards and NVRAM leave through the channel"
 	report "savedata:roundtrip" SKIP "would prove what is mounted comes back"
 	report "savedata:multitap" SKIP "would prove a multitap reaches six more card slots"
+	report "gun:bus" SKIP "would prove a GunCon 2 hangs off USB and empties its controller socket"
+	report "gun:controls" SKIP "would prove the gun's twelve declared controls reach the emulated gun"
+	report "gun:equivalence" SKIP "would prove a machine holding a light gun runs identically in the sandbox"
+	report "gun:aims" SKIP "needs a bios as well as a GunCon 2 disc"
 	report "ports:columns" SKIP "needs a bios"
 	report "disc:boots" SKIP "needs a bios as well as a disc"
 	report "disc:equivalence" SKIP "needs a bios as well as a disc"
@@ -495,11 +499,11 @@ else
 		# single run rather than sixteen because a PS2 interprets everything and
 		# five hundred frames is not cheap.
 		#
-		# P2's block starts at wire 37, not 17: the two physical ports carry the
-		# instruments' controls as well as the pad's.
+		# P2's block starts at wire 43, not 17: the two physical ports carry the
+		# instruments' controls and the light gun's as well as the pad's.
 		printf '{"port1":"dualshock2","port2":"dualshock2"}' > "$pd/settings"
 		"$nat/run-native" "$pd" --frames 400 --screenshot "$work/pad2.idle.tga" >/dev/null 2>&1
-		"$nat/run-native" "$pd" --frames 500 --press 400:100:8 --press 400:100:44 \
+		"$nat/run-native" "$pd" --frames 500 --press 400:100:8 --press 400:100:50 \
 			--screenshot "$work/pad2.held.tga" >/dev/null 2>&1
 		p1="$(python3 "$here/tests/pad-cells.py" "$work/pad2.idle.tga" "$work/pad2.held.tga" 0 | tr '\n' ' ' | sed 's/ $//')"
 		p2="$(python3 "$here/tests/pad-cells.py" "$work/pad2.idle.tga" "$work/pad2.held.tga" 1 | tr '\n' ' ' | sed 's/ $//')"
@@ -510,6 +514,127 @@ else
 		fi
 		printf '{}' > "$pd/settings"
 	fi
+fi
+
+# ---- the light gun ----------------------------------------------------------
+# A GunCon 2 is the one device here that is not a controller: it plugs into the
+# console's USB socket, and PCSX2 emulates it behind an OHCI host controller
+# rather than behind the SIO bus every pad on this machine hangs off. So the
+# questions are different from the pad's, and so is what can be answered.
+#
+# What these legs prove: the gun goes on the USB bus, and only when the project
+# asks for it; choosing it EMPTIES the controller socket of the same number,
+# which is what a real console with a light gun on it looks like; every one of
+# the twelve controls the package declares finds its place in the emulated gun;
+# and a machine holding a gun, aimed and firing, is the same machine in the
+# sandbox as it is natively.
+#
+# What they do NOT prove is further down, as a SKIP: that the position and the
+# trigger reach a GAME. Nothing on a PS2 polls a USB device until a program
+# loads the USB driver and asks, and padtest.elf - the only program this
+# repository may ship - reads the controller bus and never looks at USB. That
+# needs one of the dozen or so discs built for the gun.
+if [ -z "$bios" ] || [ ! -f "$padelf" ]; then
+	report "gun:bus" SKIP "needs a bios and padtest.elf"
+	report "gun:controls" SKIP "needs a bios and padtest.elf"
+	report "gun:equivalence" SKIP "needs a bios and padtest.elf"
+else
+	gd="$work/gun"
+	mkdir -p "$gd"
+	cp "$bios" "$gd/bios.bin"
+	cp "$padelf" "$gd/padtest.elf"
+	printf '{"disc":["padtest.elf"]}' > "$gd/slots"
+
+	# ---- on the USB bus, and only when asked -------------------------------
+	printf '{"port1":"dualshock2","verbose":true}' > "$gd/settings"
+	"$nat/run-native" "$gd" --frames 20 >"$work/gun.pad.out" 2>"$work/gun.pad.err"
+	printf '{"port1":"guncon2","verbose":true}' > "$gd/settings"
+	"$nat/run-native" "$gd" --frames 20 >"$work/gun.on.out" 2>"$work/gun.on.err"
+
+	if grep -q "Creating a GunCon 2" "$work/gun.pad.err" "$work/gun.pad.out"; then
+		report "gun:bus" FAIL "a port set to dualshock2 put a gun on the USB bus"
+	elif ! grep -q "Creating a GunCon 2 in port 1" "$work/gun.on.err" "$work/gun.on.out"; then
+		report "gun:bus" FAIL "a port set to guncon2 put nothing on the USB bus"
+	else
+		# ...and the controller socket is now empty, which padtest.elf - which
+		# reads the SIO bus and nothing else - shows by reading a dead port.
+		printf '{"port1":"dualshock2"}' > "$gd/settings"
+		withpad="$("$nat/run-native" "$gd" --frames 200 2>/dev/null | digests)"
+		printf '{"port1":"guncon2"}' > "$gd/settings"
+		withgun="$("$nat/run-native" "$gd" --frames 200 2>/dev/null | digests)"
+		printf '{"port1":"none"}' > "$gd/settings"
+		withnone="$("$nat/run-native" "$gd" --frames 200 2>/dev/null | digests)"
+		if [ "$withpad" = "$withgun" ]; then
+			report "gun:bus" FAIL "the controller socket still held a pad with a gun plugged in"
+		elif [ "$withgun" != "$withnone" ]; then
+			report "gun:bus" FAIL "a gun in port 1 is not an empty controller socket"
+		else
+			report "gun:bus" PASS "the gun hangs off USB port 1 and empties controller socket 1"
+		fi
+	fi
+
+	# ---- the twelve controls -----------------------------------------------
+	# The wire is keyed by the NAMES the emulated gun declares
+	# (GunCon2Device::Bindings), because the numbers behind them are an enum
+	# private to upstream's own file. A name that stopped matching would be a
+	# movie column the machine silently ignores, so the core refuses to load
+	# at all and this is where that is read back: the line names every control
+	# and the index it landed on.
+	printf '{"port1":"guncon2","port2":"guncon2","verbose":true}' > "$gd/settings"
+	"$nat/run-native" "$gd" --frames 5 >/dev/null 2>"$work/gun.binds.err"
+	"$nat/run-wbx" "$gst/core.wbx" "$gd" --frames 5 >/dev/null 2>"$work/gun.binds.box"
+	wantbinds="Up Down Left Right Start Select Trigger A B C ShootOffscreen Recalibrate"
+	missing=""
+	for c in $wantbinds; do
+		grep -q "GunCon 2 on USB port 1:.* $c=[0-9]" "$work/gun.binds.err" || missing="$missing $c"
+	done
+	natline="$(grep -h 'GunCon 2 on USB port' "$work/gun.binds.err" | sort)"
+	boxline="$(grep -h 'GunCon 2 on USB port' "$work/gun.binds.box" | sort)"
+	if [ -n "$missing" ]; then
+		report "gun:controls" FAIL "no place in the emulated gun for:$missing"
+	elif [ "$(printf '%s\n' "$natline" | wc -l)" != "2" ]; then
+		report "gun:controls" FAIL "a gun in each port reported $(printf '%s\n' "$natline" | wc -l) guns"
+	elif [ "$natline" != "$boxline" ]; then
+		report "gun:controls" FAIL "native and sandbox resolved the gun's controls differently"
+	else
+		report "gun:controls" PASS "all 12 controls found their place, in both ports and both flavors"
+	fi
+
+	# ---- the same machine in the sandbox -----------------------------------
+	# Aimed a quarter of the way across the screen and down, with the trigger
+	# held and the off-screen shot taken later: the gun's whole wire driven,
+	# and the two flavors must agree frame for frame. P1's gun controls are
+	# wires 37..42 and its aim is axes 8 and 9.
+	printf '{"port1":"guncon2"}' > "$gd/settings"
+	gunrun() { # <runner...>
+		"$@" --frames 200 --hold-axis 8:-16384 --hold-axis 9:8192 \
+			--press 40:120:37 --press 100:20:41 --press 150:10:42 2>/dev/null | digests
+	}
+	gnat="$(gunrun "$nat/run-native" "$gd")"
+	gbox="$(gunrun "$nat/run-wbx" "$gst/core.wbx" "$gd")"
+	if [ -z "$gnat" ]; then
+		report "gun:equivalence" FAIL "the native reference produced nothing"
+	elif [ "$gnat" = "$gbox" ]; then
+		report "gun:equivalence" PASS "200 frames with the gun aimed and firing, native == waterboxed"
+	else
+		report "gun:equivalence" FAIL "$(diff <(printf '%s\n' "$gnat") <(printf '%s\n' "$gbox") | tr '\n' ' ' | head -c 120)"
+	fi
+
+	printf '{}' > "$gd/settings"
+fi
+
+# ---- does the gun's aim reach a GAME? --------------------------------------
+# It cannot be answered here, and saying so is the point. A PS2 does not poll a
+# USB device on its own: a program loads the USB driver, opens the gun and asks
+# it where it is pointing, and only then does anything this core wrote become
+# visible to the machine. padtest.elf reads the controller bus. So the last
+# link in the chain - the frontend's two axes arriving as the coordinates a
+# game reads - waits for one of the discs the gun was built for.
+gungame="$(find "$root/tests/roms" -maxdepth 1 -iname '*guncon*' 2>/dev/null | head -1)"
+if [ -z "$gungame" ]; then
+	report "gun:aims" SKIP "no GunCon 2 disc in tests/roms: would prove the aim and the trigger reach a game"
+else
+	report "gun:aims" SKIP "a disc is here but nothing reads it yet: the leg that would drive it is unwritten"
 fi
 
 # ---- tier three: a disc ----------------------------------------------------
@@ -584,6 +709,8 @@ else
 		'||    0,...........|' "a Negcon: a twist, and one shoulder each side"
 	check '{"port1":"popn"}' \
 		'||...........|' "a Pop'n controller: nine buttons and no analog"
+	check '{"port1":"guncon2"}' \
+		'||    0,    0,............|' "a GunCon 2: where it is pointing, and twelve buttons"
 	check '{"port1":"none"}' \
 		'||' "nothing plugged in anywhere"
 	if [ -z "$wrong" ]; then

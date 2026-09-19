@@ -55,6 +55,7 @@
 #include "SIO/Pad/PadJogcon.h"
 #include "SIO/Pad/PadNegcon.h"
 #include "SIO/Pad/PadPopn.h"
+#include "USB/USB.h"
 #include "VMManager.h"
 #include "VUmicro.h"
 #include "common/Console.h"
@@ -128,6 +129,11 @@ enum
 	BTN_POP_WHITE_L, BTN_POP_YELLOW_L, BTN_POP_GREEN_L, BTN_POP_BLUE_L,
 	BTN_POP_RED,
 	BTN_POP_BLUE_R, BTN_POP_GREEN_R, BTN_POP_YELLOW_R, BTN_POP_WHITE_R,
+	/* ...and the light gun, which is not on this bus at all - see the GunCon 2
+	 * note below. Its d-pad, Start and Select are the pad's own; these are the
+	 * six controls nothing else here has. */
+	BTN_GUN_TRIGGER, BTN_GUN_A, BTN_GUN_B, BTN_GUN_C,
+	BTN_GUN_OFFSCREEN, BTN_GUN_RECALIBRATE,
 	BTN_PORT_COUNT
 };
 #define BTN_COUNT (BTN_PORT_COUNT * PS2_PORTS + BTN_DS2_COUNT * (PS2_SLOTS - PS2_PORTS))
@@ -141,6 +147,12 @@ enum
 	AXIS_LX, AXIS_LY, AXIS_RX, AXIS_RY,
 	AXIS_DS2_COUNT,
 	AXIS_DIAL = AXIS_DS2_COUNT, AXIS_TWIST, AXIS_WHAMMY, AXIS_TILT,
+	/* The gun's aim: an ABSOLUTE position on the screen rather than a stick's
+	 * displacement. -32768 is the left (top) edge and 32767 the right (bottom)
+	 * one - the frontend's range for every axis, laid over the picture, which
+	 * is the same convention the Dreamcast core uses for its light gun.
+	 * Off-screen is not a coordinate here: it is the Offscreen button. */
+	AXIS_GUN_X, AXIS_GUN_Y,
 	AXIS_PORT_COUNT
 };
 #define AXIS_COUNT (AXIS_PORT_COUNT * PS2_PORTS + AXIS_DS2_COUNT * (PS2_SLOTS - PS2_PORTS))
@@ -166,8 +178,25 @@ static int SlotAxisBase(int slot)
 }
 
 /* What each slot is, read from the settings at Init. A slot's device is part of
- * the machine, not something that changes under a running movie. */
-static Pad::ControllerType g_slotDevice[PS2_SLOTS];
+ * the machine, not something that changes under a running movie.
+ *
+ * This is the CORE's idea of a device rather than PCSX2's, because one of them
+ * is not a controller. A GunCon 2 is a USB peripheral: it plugs into the
+ * console's USB socket, speaks OHCI, and the SIO bus - where every pad here
+ * lives - never hears from it. A port set to `guncon2` therefore puts a gun in
+ * the USB socket of the same number and leaves that controller socket empty,
+ * which is what a real console with a light gun on it looks like.
+ *
+ * One setting rather than two because it is one PLAYER: a project says what
+ * player 1 is holding, a movie carries player 1's columns, and which of the
+ * console's two buses that reaches is the machine's business. The NUMBER is
+ * kept as well as the choice, because a few games only look for the gun on
+ * USB port 2. */
+enum class SlotDevice
+{
+	None, DualShock2, Guitar, Jogcon, Negcon, Popn, GunCon2
+};
+static SlotDevice g_slotDevice[PS2_SLOTS];
 
 /* the settings layer host.cpp installs, and the two things the sandbox's own
  * device and audio stream hand back */
@@ -249,14 +278,120 @@ static void SetHalfAxis(PadBase* pad, u32 negative, u32 positive, int16_t value)
 	pad->Set(positive, v > 0.0f ? v : 0.0f);
 }
 
+/* ---------------------------------------------------------------------------
+ * The GunCon 2.
+ *
+ * The gun's twelve controls are reached through PCSX2's USB layer rather than
+ * through a pad, and by NAME rather than by number: the bind indices are an
+ * enum private to guncon2.cpp, and a wire keyed by a number somebody else owns
+ * is a wire that breaks silently at the next pin bump. The device's own
+ * binding table (GunCon2Device::Bindings) is where the names come from, and it
+ * is the table upstream's own frontend binds against.
+ */
+static const struct { int wire; const char* name; } kGunBinds[] = {
+	{BTN_UP, "Up"}, {BTN_DOWN, "Down"}, {BTN_LEFT, "Left"}, {BTN_RIGHT, "Right"},
+	{BTN_START, "Start"}, {BTN_SELECT, "Select"},
+	{BTN_GUN_TRIGGER, "Trigger"},
+	{BTN_GUN_A, "A"}, {BTN_GUN_B, "B"}, {BTN_GUN_C, "C"},
+	/* Not a button on the gun: the trigger pulled while it is pointed
+	 * somewhere that is not the screen, which every light-gun game reads as
+	 * "reload". Upstream makes it a binding because a mouse cannot leave the
+	 * window; here it is a control because a movie needs a way to say it. */
+	{BTN_GUN_OFFSCREEN, "ShootOffscreen"},
+	/* The Time Crisis games calibrate by showing one black frame and waiting
+	 * for the gun to report nothing. This asks the emulated gun to play that
+	 * out - a thing the machine then remembers - so it belongs in the movie
+	 * like everything else. */
+	{BTN_GUN_RECALIBRATE, "Recalibrate"},
+};
+#define GUN_BIND_COUNT ((int)(sizeof(kGunBinds) / sizeof(kGunBinds[0])))
+/* -1 where the machine has no gun in that port */
+static int g_gunBind[PS2_PORTS][GUN_BIND_COUNT];
+
+static bool ResolveGunBinds(bool verbose)
+{
+	for (int port = 0; port < PS2_PORTS; port++)
+	{
+		for (int i = 0; i < GUN_BIND_COUNT; i++)
+			g_gunBind[port][i] = -1;
+		if (g_slotDevice[port] != SlotDevice::GunCon2)
+			continue;
+		for (const InputBindingInfo& info : USB::GetDeviceBindings(static_cast<u32>(port)))
+		{
+			if (!info.name)
+				continue;
+			for (int i = 0; i < GUN_BIND_COUNT; i++)
+				if (!std::strcmp(info.name, kGunBinds[i].name))
+					g_gunBind[port][i] = static_cast<int>(info.bind_index);
+		}
+
+		/* A DECLARED CONTROL WITH NOWHERE TO GO IS A REFUSAL, not a warning.
+		 * The package declares twelve controls for a gun and a movie records
+		 * twelve columns; a control whose name stopped matching anything in
+		 * the device's table would be a column the machine silently ignores,
+		 * and a movie made against it would look fine and play wrong. So the
+		 * load stops, and says which one. */
+		for (int i = 0; i < GUN_BIND_COUNT; i++)
+		{
+			if (g_gunBind[port][i] >= 0)
+				continue;
+			snprintf(g_loadError, sizeof(g_loadError),
+				"the GunCon 2 in port %d has no control called \"%s\". This core's "
+				"wire is keyed by the names the emulated gun declares, and that one "
+				"is gone - the pin this core is built against moved underneath it.",
+				port + 1, kGunBinds[i].name);
+			return false;
+		}
+
+		if (verbose)
+		{
+			fprintf(stderr, "chimera: GunCon 2 on USB port %d:", port + 1);
+			for (int i = 0; i < GUN_BIND_COUNT; i++)
+				fprintf(stderr, " %s=%d", kGunBinds[i].name, g_gunBind[port][i]);
+			fprintf(stderr, "\n");
+		}
+	}
+	return true;
+}
+
+/* Where the gun is pointing, asked for by the emulated gun itself at the
+ * moment the machine polls its endpoint (patch 0022). The frontend's
+ * -32768..32767 across the picture becomes the 0..1 upstream's window
+ * conversion would have produced. Nothing here reads a mouse, so the answer is
+ * the same on every machine that replays the movie. */
+extern "C" void chimera_guncon2_aim(unsigned port, float* x, float* y)
+{
+	*x = *y = -1.0f;
+	if (port >= PS2_PORTS)
+		return;
+	const int16_t* ax = &g_axes[SlotAxisBase(static_cast<int>(port))];
+	*x = (static_cast<float>(ax[AXIS_GUN_X]) + 32768.0f) / 65535.0f;
+	*y = (static_cast<float>(ax[AXIS_GUN_Y]) + 32768.0f) / 65535.0f;
+}
+
 static void ApplyInputSlot(int slot)
 {
+	const uint8_t* btn = &g_buttons[SlotButtonBase(slot)];
+	const int16_t* ax = &g_axes[SlotAxisBase(slot)];
+
+	/* The gun first, because it is not on this bus: its slot's PadBase is a
+	 * PadNotConnected and has nothing to write to. The aim is not written at
+	 * all - the gun ASKS for it (chimera_guncon2_aim) when the machine reads
+	 * the endpoint, which is where the emulated device decides what to
+	 * report. */
+	if (g_slotDevice[slot] == SlotDevice::GunCon2)
+	{
+		for (int i = 0; i < GUN_BIND_COUNT; i++)
+			if (g_gunBind[slot][i] >= 0)
+				USB::SetDeviceBindValue(static_cast<u32>(slot),
+					static_cast<u32>(g_gunBind[slot][i]),
+					btn[kGunBinds[i].wire] ? 1.0f : 0.0f);
+		return;
+	}
+
 	PadBase* pad = Pad::GetPad(static_cast<u8>(slot));
 	if (!pad)
 		return;
-
-	const uint8_t* btn = &g_buttons[SlotButtonBase(slot)];
-	const int16_t* ax = &g_axes[SlotAxisBase(slot)];
 
 	/* Every device has its OWN input indices - PadNegcon::PAD_A is not
 	 * PadDualshock2::PAD_A - so the wire is translated per device rather than
@@ -264,7 +399,7 @@ static void ApplyInputSlot(int slot)
 	 * of the others are declared for the frontend's sake and never read. */
 	switch (g_slotDevice[slot])
 	{
-	case Pad::ControllerType::Guitar:
+	case SlotDevice::Guitar:
 	{
 		static const struct { int wire; u32 button; } map[] = {
 			{BTN_STRUM_UP, PadGuitar::Inputs::STRUM_UP},
@@ -287,7 +422,7 @@ static void ApplyInputSlot(int slot)
 			(static_cast<float>(ax[AXIS_TILT]) + 32768.0f) / 65535.0f);
 		return;
 	}
-	case Pad::ControllerType::Popn:
+	case SlotDevice::Popn:
 	{
 		static const struct { int wire; u32 button; } map[] = {
 			{BTN_POP_YELLOW_L, PadPopn::Inputs::PAD_YELLOW_LEFT},
@@ -306,7 +441,7 @@ static void ApplyInputSlot(int slot)
 			pad->Set(m.button, btn[m.wire] ? 1.0f : 0.0f);
 		return;
 	}
-	case Pad::ControllerType::Negcon:
+	case SlotDevice::Negcon:
 	{
 		static const struct { int wire; u32 button; } map[] = {
 			{BTN_UP, PadNegcon::Inputs::PAD_UP},
@@ -329,7 +464,7 @@ static void ApplyInputSlot(int slot)
 			PadNegcon::Inputs::PAD_TWIST_RIGHT, ax[AXIS_TWIST]);
 		return;
 	}
-	case Pad::ControllerType::Jogcon:
+	case SlotDevice::Jogcon:
 	{
 		static const struct { int wire; u32 button; } map[] = {
 			{BTN_UP, PadJogcon::Inputs::PAD_UP},
@@ -353,7 +488,7 @@ static void ApplyInputSlot(int slot)
 			PadJogcon::Inputs::PAD_DIAL_RIGHT, ax[AXIS_DIAL]);
 		return;
 	}
-	case Pad::ControllerType::NotConnected:
+	case SlotDevice::None:
 		return;
 	default:
 		break; /* the DualShock 2, below */
@@ -633,26 +768,39 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 
 	{
 		static const char* const devices[] = {
-			"none", "dualshock2", "guitar", "jogcon", "negcon", "popn"
+			"none", "dualshock2", "guitar", "jogcon", "negcon", "popn", "guncon2"
 		};
 		static const char* const pcsx2Names[] = {
-			"None", "DualShock2", "Guitar", "Jogcon", "Negcon", "Popn"
+			"None", "DualShock2", "Guitar", "Jogcon", "Negcon", "Popn", "None"
 		};
-		static const Pad::ControllerType types[] = {
-			Pad::ControllerType::NotConnected, Pad::ControllerType::DualShock2,
-			Pad::ControllerType::Guitar, Pad::ControllerType::Jogcon,
-			Pad::ControllerType::Negcon, Pad::ControllerType::Popn,
+		static const SlotDevice types[] = {
+			SlotDevice::None, SlotDevice::DualShock2,
+			SlotDevice::Guitar, SlotDevice::Jogcon,
+			SlotDevice::Negcon, SlotDevice::Popn, SlotDevice::GunCon2,
 		};
 		for (int slot = 0; slot < PS2_SLOTS; slot++)
 		{
-			/* the instruments are offered on the two physical ports only, so
-			 * the other six choose between two options and nothing else */
-			const int choices = slot < PS2_PORTS ? 6 : 2;
+			/* the instruments and the light gun are offered on the two physical
+			 * ports only, so the other six choose between two options and
+			 * nothing else */
+			const int choices = slot < PS2_PORTS ? 7 : 2;
 			const int choice = SettingIndex(
 				fmt::format("port{}", slot + 1).c_str(), devices, choices, slot == 0 ? 1 : 0);
 			g_slotDevice[slot] = types[choice];
+			/* A GunCon 2 leaves the CONTROLLER socket empty - pcsx2Names says
+			 * "None" for it - so this line is still the whole truth about what
+			 * is on the SIO bus. */
 			si.SetStringValue(fmt::format("Pad{}", slot + 1).c_str(), "Type", pcsx2Names[choice]);
 		}
+
+		/* ...and the two USB sockets, which is the other half of the same
+		 * decision. A port set to `guncon2` puts a gun in the socket of the
+		 * same number; anything else leaves that socket empty. Nothing else is
+		 * offered there: this build registers one USB device and no more
+		 * (patch 0022). */
+		for (int port = 0; port < PS2_PORTS; port++)
+			si.SetStringValue(fmt::format("USB{}", port + 1).c_str(), "Type",
+				g_slotDevice[port] == SlotDevice::GunCon2 ? "guncon2" : "None");
 	}
 
 	/* Auto-eject exists so that a card swapped on a desktop is noticed. A
@@ -857,6 +1005,9 @@ ECL_EXPORT int Init(void)
 	}
 	/* the machine has read its disc's SYSTEM.CNF by now, or has none */
 	DecideFieldRate(verbose);
+	/* ...and its USB devices exist, so the gun's controls can be looked up */
+	if (!ResolveGunBinds(verbose))
+		return 0;
 
 	VMManager::SetState(VMState::Running);
 	g_loaded = true;
@@ -875,42 +1026,51 @@ ECL_EXPORT void SetButton(int index, int value)
  * because a declaration is static and cannot know what a project plugged in.
  * The slot settings are read here, so here is where the question is answered.
  *
- * Each list below is the device's OWN Inputs enum (SIO/Pad/Pad*.h), which is
- * the same place ApplyInputSlot translates the wire into - so a device that
- * grows a button grows a column, and one that never had a stick never shows
- * one. The wire is untouched: a slot's block is the size it always was and
- * every index in ApplyInputSlot stays where it is. */
-static bool WireLiveFor(Pad::ControllerType device, int wire)
+ * Each list below is the device's OWN Inputs enum (SIO/Pad/Pad*.h, and for the
+ * light gun USB/usb-lightgun/guncon2.cpp), which is the same place
+ * ApplyInputSlot translates the wire into - so a device that grows a button
+ * grows a column, and one that never had a stick never shows one. The wire is
+ * untouched: a slot's block is the size it always was and every index in
+ * ApplyInputSlot stays where it is. */
+static bool WireLiveFor(SlotDevice device, int wire)
 {
 	switch (device)
 	{
-		case Pad::ControllerType::DualShock2:
+		case SlotDevice::DualShock2:
 			return wire < BTN_DS2_COUNT;
 
-		case Pad::ControllerType::Guitar:
+		case SlotDevice::GunCon2:
+			/* a d-pad, Start and Select out of the pad's own block, plus the
+			 * six nothing else here has: the trigger, A, B, C, the off-screen
+			 * shot and the calibration shot. No face buttons, no shoulders, no
+			 * sticks, no analog switch - a GunCon 2 is a gun. */
+			return wire <= BTN_SELECT
+				|| (wire >= BTN_GUN_TRIGGER && wire <= BTN_GUN_RECALIBRATE);
+
+		case SlotDevice::Guitar:
 			/* a strum bar, five frets, and the two the shell still has */
 			return wire == BTN_START || wire == BTN_SELECT
 				|| wire == BTN_STRUM_UP || wire == BTN_STRUM_DOWN
 				|| (wire >= BTN_FRET_GREEN && wire <= BTN_FRET_ORANGE);
 
-		case Pad::ControllerType::Jogcon:
+		case SlotDevice::Jogcon:
 			/* a DualShock 2 without its sticks: no L3, no R3, no analog
 			 * button, and a dial where the sticks were */
 			return wire <= BTN_R2 && wire != BTN_L3 && wire != BTN_R3
 				&& wire != BTN_ANALOG;
 
-		case Pad::ControllerType::Negcon:
+		case SlotDevice::Negcon:
 			/* a d-pad, its own four buttons, Start, and ONE shoulder each side
 			 * - which is what L1 and R1 are here (PadNegcon::PAD_L/PAD_R) */
 			return wire <= BTN_RIGHT || wire == BTN_START
 				|| wire == BTN_L1 || wire == BTN_R1
 				|| (wire >= BTN_NEGCON_A && wire <= BTN_NEGCON_II);
 
-		case Pad::ControllerType::Popn:
+		case SlotDevice::Popn:
 			return wire == BTN_START || wire == BTN_SELECT
 				|| (wire >= BTN_POP_WHITE_L && wire <= BTN_POP_WHITE_R);
 
-		default: /* NotConnected */
+		default: /* nothing plugged in */
 			return false;
 	}
 }
@@ -937,14 +1097,17 @@ ECL_EXPORT int IsAxisActive(int index)
 		const int wire = index - base;
 		switch (g_slotDevice[slot])
 		{
-			case Pad::ControllerType::DualShock2:
+			case SlotDevice::DualShock2:
 				return wire < AXIS_DS2_COUNT ? 1 : 0;
-			case Pad::ControllerType::Jogcon:
+			case SlotDevice::Jogcon:
 				return wire == AXIS_DIAL ? 1 : 0;
-			case Pad::ControllerType::Negcon:
+			case SlotDevice::Negcon:
 				return wire == AXIS_TWIST ? 1 : 0;
-			case Pad::ControllerType::Guitar:
+			case SlotDevice::Guitar:
 				return wire == AXIS_WHAMMY || wire == AXIS_TILT ? 1 : 0;
+			case SlotDevice::GunCon2:
+				/* where it is pointing, and nothing else: a gun has no stick */
+				return wire == AXIS_GUN_X || wire == AXIS_GUN_Y ? 1 : 0;
 			default: /* a Pop'n controller is nine buttons and nothing else */
 				return 0;
 		}

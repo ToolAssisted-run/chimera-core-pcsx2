@@ -16,7 +16,15 @@
     "would collide with player 1's. The instruments' controls - the frets, the strum bar, the",
     "Negcon's buttons, Pop'n Music's nine - are declared but unbound: they belong to devices a",
     "port has to be SET to, and a binding for a device nobody plugged in is a key that does",
-    "nothing."
+    "nothing.",
+    "",
+    "The light gun is the one exception to that: a GunCon 2's buttons ARE bound, because a",
+    "port set to guncon2 has no pad in it - the gun replaces it - so the keys cannot collide",
+    "with one. Its trigger, A, B and C sit on the same keys and pad buttons as the controls",
+    "they stand in for, and the off-screen shot (the reload every light-gun game reads) gets",
+    "a key of its own. Where the gun POINTS is left unbound: it is an absolute position on",
+    "the screen, and no key or stick is that. A movie writes it; a frontend that wants to aim",
+    "with something has to say what."
   ],
   "AllTrollers": {
     "PlayStation 2 Controllers": {
@@ -37,6 +45,12 @@
       "P1 L3": "E, J1 B11, X1 LeftStick",
       "P1 R3": "R, J1 B12, X1 RightStick",
       "P1 Analog": "Tab, J1 B13",
+      "P1 Gun Trigger": "Space, J1 B8, X1 RightTrigger",
+      "P1 Gun A": "Z, J1 B2, X1 A",
+      "P1 Gun B": "X, J1 B3, X1 B",
+      "P1 Gun C": "S, J1 B4, X1 Y",
+      "P1 Gun Offscreen": "C, J1 B6, X1 RightShoulder",
+      "P1 Gun Recalibrate": "V",
       "P2 Up": "J2 POV1U, X2 DpadUp",
       "P2 Down": "J2 POV1D, X2 DpadDown",
       "P2 Left": "J2 POV1L, X2 DpadLeft",
@@ -54,6 +68,12 @@
       "P2 L3": "J2 B11, X2 LeftStick",
       "P2 R3": "J2 B12, X2 RightStick",
       "P2 Analog": "J2 B13",
+      "P2 Gun Trigger": "J2 B8, X2 RightTrigger",
+      "P2 Gun A": "J2 B2, X2 A",
+      "P2 Gun B": "J2 B3, X2 B",
+      "P2 Gun C": "J2 B4, X2 Y",
+      "P2 Gun Offscreen": "J2 B6, X2 RightShoulder",
+      "P2 Gun Recalibrate": "",
       "P3 Up": "J3 POV1U, X3 DpadUp",
       "P3 Down": "J3 POV1D, X3 DpadDown",
       "P3 Left": "J3 POV1L, X3 DpadLeft",
@@ -191,6 +211,20 @@
         "ButtonBindPositive": "",
         "ButtonBindNegative": ""
       },
+      "P1 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
       "P2 Left Stick X": {
         "Value": "X2 LeftThumbX Axis",
         "Mult": 1.0,
@@ -214,6 +248,20 @@
       },
       "P2 Right Stick Y": {
         "Value": "X2 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun Y": {
+        "Value": "",
         "Mult": 1.0,
         "Deadzone": 0.1,
         "ButtonBindPositive": "",

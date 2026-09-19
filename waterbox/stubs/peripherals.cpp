@@ -1,14 +1,19 @@
 /* The peripherals a sandbox has no way to have, and the recorder it does not
  * need.
  *
- * USB and DEV9 are real PS2 hardware - an expansion bay with a network adapter
- * and a hard disk, and two USB ports. Both are OPTIONAL hardware: a stock
- * console has neither populated, and the games this core is for do not look.
- * Emulating them would mean a network stack and a host filesystem inside the
- * sandbox, which is precisely what a sandbox is for not having. The machine
- * still names their entry points, because the IOP's io map does, so they are
- * answered here: reads return the bus's idle value, writes go nowhere, and the
- * console sees an empty bay.
+ * DEV9 is real PS2 hardware - an expansion bay with a network adapter and a
+ * hard disk - and it is OPTIONAL: a stock console has it unpopulated and the
+ * games this core is for do not look. Emulating it would mean a network stack
+ * and a host filesystem inside the sandbox, which is precisely what a sandbox
+ * is for not having. The machine still names its entry points, because the
+ * IOP's io map does, so they are answered here: reads return the bus's idle
+ * value, writes go nowhere, and the console sees an empty bay.
+ *
+ * The other optional bay - USB - used to be answered the same way, and is not
+ * any more: the GunCon 2 is a USB device, so the OHCI controller and that one
+ * peripheral are compiled (waterbox/sources.sh, patch 0022). A port with
+ * nothing plugged into it is still an empty port, decided by a setting rather
+ * than by a stub.
  *
  * InputManager is PCSX2's mapping layer: real joysticks, SDL, keyboards,
  * vibration. A Chimera frontend has already done that work by the time input
@@ -29,34 +34,8 @@
 #include "CDVD/CDVDcommon.h"
 #include "SIO/Memcard/MemoryCardFile.h"
 #include "SIO/Memcard/MemoryCardFolder.h"
-#include "USB/USB.h"
 
 #include "fmt/format.h"
-
-/* ---------------------------------------------------------------------------
- * USB: two ports with nothing in them.
- */
-void USBinit() {}
-void USBasync(u32 cycles) {}
-void USBshutdown() {}
-void USBclose() {}
-bool USBopen() { return true; }
-void USBreset() {}
-u8 USBread8(u32 addr) { return 0; }
-u16 USBread16(u32 addr) { return 0; }
-u32 USBread32(u32 addr) { return 0; }
-void USBwrite8(u32 addr, u8 value) {}
-void USBwrite16(u32 addr, u16 value) {}
-void USBwrite32(u32 addr, u32 value) {}
-
-namespace USB
-{
-	s32 DeviceTypeNameToIndex(const std::string_view device) { return -1; }
-	const char* DeviceTypeIndexToName(s32 device) { return "None"; }
-	std::string GetConfigSection(int port) { return fmt::format("USB{}", port + 1); }
-	void SetDefaultConfiguration(SettingsInterface* si) {}
-	void CheckForConfigChanges(const Pcsx2Config& old_config) {}
-} // namespace USB
 
 /* ---------------------------------------------------------------------------
  * DEV9: an empty expansion bay. `irqHandler` returning 0 is "nothing to

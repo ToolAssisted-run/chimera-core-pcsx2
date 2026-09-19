@@ -1,0 +1,111 @@
+diff --git a/pcsx2/USB/deviceproxy.cpp b/pcsx2/USB/deviceproxy.cpp
+--- a/pcsx2/USB/deviceproxy.cpp
++++ b/pcsx2/USB/deviceproxy.cpp
+@@ -2,6 +2,19 @@
+ // SPDX-License-Identifier: GPL-3.0+
+ 
+ #include "deviceproxy.h"
++#ifdef CHIMERA_WATERBOX
++// ONE DEVICE, not eighteen. Upstream's registry names every USB peripheral
++// PCSX2 emulates, and naming them is what COMPILES them: a webcam that decodes
++// JPEG, a microphone that opens an audio device, a mass storage device backed
++// by a file on somebody's disk, a printer that writes images. None of those can
++// exist inside a sandbox, and compiling all of them to reach one light gun is
++// carrying the whole USB tree for the sake of a leaf.
++//
++// So the sandbox build registers the GunCon 2 and nothing else. The registry is
++// untouched: a port asking for anything else finds no proxy and stays empty,
++// which is the same path USB::CreateDevice already takes for DEVTYPE_NONE.
++#include "usb-lightgun/guncon2.h"
++#else
+ #include "usb-eyetoy/usb-eyetoy-webcam.h"
+ #include "usb-pad/usb-buzz.h"
+ #include "usb-pad/usb-gametrak.h"
+@@ -16,6 +29,7 @@
+ #include "usb-pad/usb-turntable.h"
+ #include "usb-printer/usb-printer.h"
+ #include "usb-lightgun/guncon2.h"
++#endif
+ 
+ RegisterDevice* RegisterDevice::registerDevice = nullptr;
+ 
+@@ -67,6 +81,9 @@ void RegisterDevice::Register()
+ 	auto& inst = RegisterDevice::instance();
+ 	if (inst.Map().size()) // FIXME Don't clear proxies, singstar keeps a copy to uninit audio
+ 		return;
++#ifdef CHIMERA_WATERBOX
++	inst.Add(DEVTYPE_GUNCON2, new usb_lightgun::GunCon2Device());
++#else
+ 	inst.Add(DEVTYPE_PAD, new usb_pad::PadDevice());
+ 	inst.Add(DEVTYPE_MSD, new usb_msd::MsdDevice());
+ 	inst.Add(DEVTYPE_MICROPHONE, new usb_mic::MicrophoneDevice());
+@@ -85,6 +102,7 @@ void RegisterDevice::Register()
+ 	inst.Add(DEVTYPE_GAMETRAK, new usb_pad::GametrakDevice());
+ 	inst.Add(DEVTYPE_REALPLAY, new usb_pad::RealPlayDevice());
+ 	inst.Add(DEVTYPE_TRAIN, new usb_pad::TrainDevice());
++#endif
+ }
+ 
+ void RegisterDevice::Unregister()
+diff --git a/pcsx2/USB/usb-lightgun/guncon2.cpp b/pcsx2/USB/usb-lightgun/guncon2.cpp
+--- a/pcsx2/USB/usb-lightgun/guncon2.cpp
++++ b/pcsx2/USB/usb-lightgun/guncon2.cpp
+@@ -19,6 +19,34 @@
+ 
+ #include <tuple>
+ 
++#ifdef CHIMERA_WATERBOX
++// WHERE THE GUN IS POINTING COMES FROM THE MOVIE.
++//
++// Upstream asks InputManager for the position of the host's POINTER - the
++// mouse, on the desk, right now - and then converts it out of the emulator
++// window's coordinates into the display's. Neither half exists here, and the
++// first is worse than absent: a machine that aims itself from a mouse is a
++// machine no movie can replay, because the mouse is not in the movie.
++//
++// So the aim is an input like every other one. The package declares two
++// absolute axes per port (waterbox/waterbox.config's "Gun X" and "Gun Y"), a
++// movie carries them frame by frame like a stick, and the core hands them over
++// here already in the coordinates the window conversion would have produced:
++// 0..1 across the picture, and anything negative meaning the gun is not pointed
++// at the screen at all. waterbox/cinterface.cpp is the other end of this.
++//
++// It is the only reason this file is patched.
++extern "C" void chimera_guncon2_aim(unsigned port, float* x, float* y);
++#endif
++
++#ifdef CHIMERA_LAG_DETECTION
++// ...and the second: a LAG FRAME is a frame the machine never looked at its
++// input, and a machine holding a light gun does not look at a pad. Where it
++// looks is here - the interrupt endpoint the gun answers with its position and
++// its buttons - so that is where the frame is marked as seen.
++extern "C" void chimera_input_was_read(void);
++#endif
++
+ namespace usb_lightgun
+ {
+ 	enum : u32
+@@ -270,6 +298,9 @@ namespace usb_lightgun
+ 			{
+ 				if (p->ep->nr == 1)
+ 				{
++#ifdef CHIMERA_LAG_DETECTION
++					chimera_input_was_read();
++#endif
+ 					const auto [pos_x, pos_y] = us->CalculatePosition();
+ 
+ 					// Time Crisis games do a "calibration" by displaying a black frame for a single frame,
+@@ -371,9 +402,13 @@ namespace usb_lightgun
+ 	std::tuple<s16, s16> GunCon2State::CalculatePosition()
+ 	{
+ 		float pointer_x, pointer_y;
++#ifdef CHIMERA_WATERBOX
++		chimera_guncon2_aim(port, &pointer_x, &pointer_y);
++#else
+ 		const auto& [window_x, window_y] =
+ 			(has_relative_binds) ? GetAbsolutePositionFromRelativeAxes() : InputManager::GetPointerAbsolutePosition(0);
+ 		GSTranslateWindowToDisplayCoordinates(window_x, window_y, &pointer_x, &pointer_y);
++#endif
+ 
+ 		s16 pos_x, pos_y;
+ 		if (pointer_x < 0.0f || pointer_y < 0.0f)

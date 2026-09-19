@@ -100,6 +100,15 @@ namespace SaveStateSelectorUI
 /* ---------------------------------------------------------------------------
  * The screen furniture the GS still names: a font, a scale, an overlay
  * position. Nothing draws.
+ *
+ * The software cursor is the light gun's crosshair - the picture a desktop
+ * paints over the game so the player can see where the gun is pointing. It is
+ * a view of the machine's input, not part of the machine, and a core hands
+ * over pixels the GS drew and nothing else; a frontend that wants a crosshair
+ * has the gun's two axes in the movie and can draw its own. There is no window
+ * either, so the two sizes are zero: the only thing that asks is the gun's
+ * RELATIVE aiming path, which this core never takes (patch 0022 - the aim
+ * arrives as an absolute position from the movie).
  */
 namespace ImGuiManager
 {
@@ -107,6 +116,10 @@ namespace ImGuiManager
 	float GetFontSizeStandard() { return 15.0f; }
 	float GetGlobalScale() { return 1.0f; }
 	float GetWindowWidth() { return 0.0f; }
+	float GetWindowHeight() { return 0.0f; }
+	void SetSoftwareCursor(u32 index, std::string image_path, float image_scale, u32 multiply_color) {}
+	void ClearSoftwareCursor(u32 index) {}
+	void SetSoftwareCursorPosition(u32 index, float pos_x, float pos_y) {}
 } // namespace ImGuiManager
 
 ImVec2 CalculatePerformanceOverlayTextPosition(OsdOverlayPos position, float margin, const ImVec2& text_size,

@@ -25,9 +25,9 @@
  *
  * A slot's block is the DualShock 2's seventeen - the d-pad, start and select,
  * the four face buttons, the four shoulders, the two stick clicks and the
- * analog toggle - and the two PHYSICAL ports carry twenty more for the
- * instruments, so the blocks are NOT the same size. GATE_SLOT_BASE is the only
- * honest way to index one.
+ * analog toggle - and the two PHYSICAL ports carry twenty-six more for the
+ * instruments and the light gun, so the blocks are NOT the same size.
+ * GATE_SLOT_BASE is the only honest way to index one.
  *
  *   0 Up  1 Down  2 Left  3 Right  4 Start  5 Select
  *   6 Square  7 Cross  8 Circle  9 Triangle
@@ -35,11 +35,12 @@
  *   17..20 Negcon A B I II          21..22 Strum Up Down
  *   23..27 frets green red yellow blue orange
  *   28..36 pop'n white/yellow/green/blue left, red, blue/green/yellow/white right
+ *   37 gun Trigger  38..40 gun A B C  41 gun Offscreen  42 gun Recalibrate
  *
- * and per slot four axes (LX LY RX RY), the two ports four more (Dial, Twist,
- * Whammy, Tilt). */
+ * and per slot four axes (LX LY RX RY), the two ports six more (Dial, Twist,
+ * Whammy, Tilt, Gun X, Gun Y). */
 #define GATE_DS2_BTNS 17
-#define GATE_PORT_BTNS 37
+#define GATE_PORT_BTNS 43
 #define GATE_PORTS 2
 #define GATE_SLOTS 8
 #define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS))
@@ -97,6 +98,12 @@ struct gate_opts
 	 * is the order its waterbox.config declares. */
 	struct { long first, count; int index; } press[GATE_MAX_PRESSES];
 	int presses;
+	/* Axes held for the whole run: --hold-axis <index>:<value>, repeatable.
+	 * An absolute axis - a light gun's aim - is not something a wander can
+	 * ask a question with: "the gun was pointed HERE" is the question, and
+	 * the answer is what the machine did about it. */
+	struct { int index; int value; } hold[GATE_MAX_PRESSES];
+	int holds;
 	int turbo;            /* nonzero: draw nothing for the first half of the run */
 	long turboSettle;     /* frames to let the picture settle before hashing it */
 };
@@ -316,6 +323,9 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 			}
 		}
 
+		for (int hi = 0; hi < o->holds && c->set_axis; hi++)
+			c->set_axis(o->hold[hi].index, o->hold[hi].value);
+
 		if (o->wiggleAxes && c->set_axis)
 		{
 			/* a deterministic wander: mouse deltas -2..2, gun coords circling
@@ -461,6 +471,7 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 	o->exercisePad = 0;
 	o->wiggleAxes = 0;
 	o->presses = 0;
+	o->holds = 0;
 	o->turbo = 0;
 	o->turboSettle = 0;
 	for (int i = first; i < argc; i++)
@@ -491,6 +502,19 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 			o->presses++;
 		}
 
+		else if (!strcmp(argv[i], "--hold-axis") && i + 1 < argc)
+		{
+			if (o->holds >= GATE_MAX_PRESSES) { fprintf(stderr, "too many --hold-axis\n"); return 0; }
+			int index = -1, value = 0;
+			if (sscanf(argv[++i], "%d:%d", &index, &value) != 2)
+			{
+				fprintf(stderr, "--hold-axis wants <axis index>:<value>\n");
+				return 0;
+			}
+			o->hold[o->holds].index = index;
+			o->hold[o->holds].value = value;
+			o->holds++;
+		}
 		else if (!strcmp(argv[i], "--turbo")) o->turbo = 1;
 		else if (!strcmp(argv[i], "--turbo-settle") && i + 1 < argc) o->turboSettle = strtol(argv[++i], 0, 0);		else if (!strcmp(argv[i], "--rerecord")) ; /* run-wbx's; ignored here */
 		else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 0; }
