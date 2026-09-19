@@ -37,6 +37,12 @@ endif
 # shell, which exists to serve a GUI this core does not have.
 defs = [
   '-DNDEBUG',
+  # zlib's gz* sources call read/write/lseek and include <unistd.h> only when
+  # this is set - ./configure would have set it, and nobody configured this
+  # vendored copy. gcc 14 makes an implicit declaration an error, so without
+  # it the NATIVE reference stopped building (the guest's musl headers
+  # declare them anyway, which is why only one flavour noticed).
+  '-DHAVE_UNISTD_H',
   '-DPCSX2_CORE',
   '-DCHIMERA_WATERBOX',
   # The software renderer generates its scanline routines at runtime through
