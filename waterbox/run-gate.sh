@@ -64,6 +64,131 @@ report() {
 printf "%-28s %-6s %s\n" "Check" "Result" "Detail"
 printf "%-28s %-6s %s\n" "-----" "------" "------"
 
+# ---- the NAMCO boards, against a real game OFF THE RECORD -------------------
+# A System 246 cannot be gated the way the console is. It is a PlayStation
+# 2 with NAMCO's board in the expansion bay, and a game for it is not a disc but
+# a BUNDLE: an arcade bios from a COH-H board, the game's security dongle (a
+# dump of its own COH-H10020 memory card, which holds the boot software), the
+# game's media, and a boot program. None of that is in this repository and none
+# of it ever will be.
+#
+# What CAN be held to account, given the content, is what every program here is
+# held to - native == sandbox, the machine ran, a savestate round-trip is
+# lossless, the panel reaches the game, something was drawn - and that is what
+# runs here, once per board, when the folder for it is named:
+#
+#   PCSX2_S246_ROMS   a folder holding, under exactly these names:
+#   PCSX2_S256_ROMS       bios.bin    a COH-H arcade bios (NOT a retail dump)
+#   PCSX2_SS256_ROMS      boot.elf    the boot program (proverb's will do)
+#                         dongle.*    the game's security dongle
+#                         media.*     the game's CD, DVD or hard disk image
+#   PCSX2_S246_GAME   the NAMCO part number, e.g. NM00004 (default: unset, which
+#   PCSX2_S256_GAME       is the board's generic panel wiring)
+#   PCSX2_SS256_GAME
+#   PCSX2_S246_MEDIA  cd | dvd | hdd (default dvd), and _RAM the board RAM in MB
+#
+# Without the folder the legs are SKIPPED, which is what CI does; docs/PLAN.md
+# records what they said on the machine that had the content.
+arcade_legs() {
+	local tag="$1" machine="$2" dir="$3" gameid="$4" media="$5" ram="$6"
+	if [ -z "$dir" ] || [ ! -f "$dir/bios.bin" ] || [ ! -f "$dir/boot.elf" ]; then
+		report "$tag:equivalence" SKIP "set the roms folder (see the comment above)"
+		return
+	fi
+	local dongle image
+	dongle="$(ls "$dir"/dongle.* 2>/dev/null | head -1)"
+	image="$(ls "$dir"/media.* 2>/dev/null | head -1)"
+	if [ -z "$dongle" ] || [ -z "$image" ]; then
+		report "$tag:equivalence" SKIP "$dir has no dongle.* or no media.*"
+		return
+	fi
+	local wd="$work/$tag"
+	mkdir -p "$wd"
+	cp "$dir/bios.bin" "$dir/boot.elf" "$wd/"
+	# the media can be gigabytes; a link is what the runners mount either way
+	ln -sf "$(readlink -f "$dongle")" "$wd/$(basename "$dongle")"
+	ln -sf "$(readlink -f "$image")" "$wd/$(basename "$image")"
+	printf '{"dongle":["%s"],"arcademedia":["%s"],"bootelf":["boot.elf"]}' \
+		"$(basename "$dongle")" "$(basename "$image")" > "$wd/slots"
+	printf '{"machine":"%s","arcade_game":"%s","arcade_media":"%s","arcade_ram":"%s"}' \
+		"$machine" "$gameid" "${media:-dvd}" "${ram:-64}" > "$wd/settings"
+	local frames=${PCSX2_ARCADE_FRAMES:-3600}
+	local before after
+	before="$(ls "$wd")"
+	if ! "$nat/run-native" "$wd" --frames "$frames" 2>"$work/anat.err" | digests > "$work/anat.txt"; then
+		report "$tag:equivalence" FAIL "native runner error: $(grep -v '^\s*$' "$work/anat.err" | tail -1)"
+		return
+	fi
+	if ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" 2>"$work/abox.err" | digests > "$work/abox.txt"; then
+		report "$tag:equivalence" FAIL "waterbox runner error: $(grep -v '^\s*$' "$work/abox.err" | tail -1)"
+		return
+	fi
+	if ! cmp -s "$work/anat.txt" "$work/abox.txt"; then
+		report "$tag:equivalence" FAIL "$(diff "$work/anat.txt" "$work/abox.txt" | tr '\n' ' ' | head -c 120)"
+		return
+	fi
+	report "$tag:equivalence" PASS "$(basename "$image"), $frames frames, native == waterboxed"
+
+	"$nat/run-native" "$wd" --frames $((frames / 2)) 2>/dev/null | digests > "$work/ahalf.txt"
+	if cmp -s "$work/anat.txt" "$work/ahalf.txt"; then
+		report "$tag:ran" FAIL "half as many frames left the machine in the same state"
+	else
+		report "$tag:ran" PASS "the board executed: $frames frames differ from $((frames / 2))"
+	fi
+
+	# the savestate, around every frame, over a shorter run: the whole guest is
+	# the state, so the board's RAM, its settings memory, the drive's position
+	# and the JVS coin counters all ride along in it or none of them do
+	local rrframes=$((frames / 6))
+	"$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$rrframes" 2>/dev/null | digests > "$work/arr0.txt"
+	if "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$rrframes" --rerecord 2>/dev/null | digests > "$work/arr1.txt" \
+		&& cmp -s "$work/arr0.txt" "$work/arr1.txt"; then
+		report "$tag:savestate" PASS "$rrframes frames, per-frame round-trip is lossless"
+	else
+		report "$tag:savestate" FAIL "$(diff "$work/arr0.txt" "$work/arr1.txt" | tr '\n' ' ' | head -c 120)"
+	fi
+
+	# the panel: a COIN, which is the one control every cabinet has and the one
+	# thing a board in attract mode cannot ignore. Held for five frames three
+	# quarters of the way in; the machine must differ, and both flavors must
+	# differ the same way. (Coin 1 is wire 24 of the Arcade Panel.)
+	local idle held boxheld
+	idle="$(cat "$work/anat.txt")"
+	held="$("$nat/run-native" "$wd" --frames "$frames" --press $((frames * 3 / 4)):5:24 2>/dev/null | digests)"
+	boxheld="$("$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" --press $((frames * 3 / 4)):5:24 2>/dev/null | digests)"
+	if [ "$held" = "$idle" ]; then
+		report "$tag:panel" FAIL "the coin made no difference to the machine"
+	elif [ "$held" != "$boxheld" ]; then
+		report "$tag:panel" FAIL "native and sandbox disagree with a coin in"
+	else
+		report "$tag:panel" PASS "the JVS board took a coin at frame $((frames * 3 / 4)): idle != coin, native == waterboxed"
+	fi
+
+	# the picture: the board must have drawn something by the end
+	"$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" --screenshot "$work/$tag.tga" >/dev/null 2>&1
+	local lit
+	lit="$(python3 - "$work/$tag.tga" <<'PYLIT'
+import struct, sys
+d = open(sys.argv[1], "rb").read(); w, h = struct.unpack("<HH", d[12:16]); px = d[18:18 + w * h * 4]
+print(sum(1 for i in range(0, len(px), 4) if px[i] | px[i + 1] | px[i + 2]) * 100 // (w * h))
+PYLIT
+)"
+	if [ "${lit:-0}" -gt 0 ]; then
+		report "$tag:picture" PASS "frame $frames is $lit% lit"
+	else
+		report "$tag:picture" FAIL "frame $frames is black"
+	fi
+
+	# ...and the board's own memory is the savestate's, not a file: a run that
+	# left a settings image behind would be a run the next one starts from
+	after="$(ls "$wd")"
+	if [ "$before" = "$after" ]; then
+		report "$tag:files" PASS "the run wrote nothing into the project"
+	else
+		report "$tag:files" FAIL "the run left files behind: $(diff <(echo "$before") <(echo "$after") | tr '\n' ' ')"
+	fi
+}
+
 # ---- tier one: no content needed -------------------------------------------
 # A machine with no bios is the state every user without a dump starts in. It
 # must be a clear refusal rather than a crash, and it must be the same refusal
@@ -177,6 +302,12 @@ if [ -z "$bios" ]; then
 	report "ports:columns" SKIP "needs a bios"
 	report "disc:boots" SKIP "needs a bios as well as a disc"
 	report "disc:equivalence" SKIP "needs a bios as well as a disc"
+	# the NAMCO boards carry their own bios, so their legs do not depend on the
+	# console's - they run from here too, and skip on their own when the
+	# content they need is not named (see arcade_legs, above)
+	arcade_legs "s246"  "system246"      "${PCSX2_S246_ROMS:-}"  "${PCSX2_S246_GAME:-}"  "${PCSX2_S246_MEDIA:-}"  "${PCSX2_S246_RAM:-64}"
+	arcade_legs "s256"  "system256"      "${PCSX2_S256_ROMS:-}"  "${PCSX2_S256_GAME:-}"  "${PCSX2_S256_MEDIA:-}"  "${PCSX2_S256_RAM:-0}"
+	arcade_legs "ss256" "system256super" "${PCSX2_SS256_ROMS:-}" "${PCSX2_SS256_GAME:-}" "${PCSX2_SS256_MEDIA:-}" "${PCSX2_SS256_RAM:-0}"
 	echo
 	echo "$ok ok, $failed failed, $skipped skipped"
 	[ "$failed" -eq 0 ]
@@ -763,6 +894,10 @@ else
 		report "disc:equivalence" FAIL "$(diff "$work/disc.nat" "$work/disc.box" | tr '\n' ' ' | head -c 120)"
 	fi
 fi
+
+arcade_legs "s246"  "system246"      "${PCSX2_S246_ROMS:-}"  "${PCSX2_S246_GAME:-}"  "${PCSX2_S246_MEDIA:-}"  "${PCSX2_S246_RAM:-64}"
+arcade_legs "s256"  "system256"      "${PCSX2_S256_ROMS:-}"  "${PCSX2_S256_GAME:-}"  "${PCSX2_S256_MEDIA:-}"  "${PCSX2_S256_RAM:-0}"
+arcade_legs "ss256" "system256super" "${PCSX2_SS256_ROMS:-}" "${PCSX2_SS256_GAME:-}" "${PCSX2_SS256_MEDIA:-}" "${PCSX2_SS256_RAM:-0}"
 
 # ---- what a project PLUGS IN decides what a movie has columns for ----------
 # This package declares the union of every device its eight slots can hold - a

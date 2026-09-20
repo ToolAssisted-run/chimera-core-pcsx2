@@ -109,6 +109,11 @@ than a precondition.
 - **M7 - the light gun.** DONE 2026-09-19. The GunCon 2, on the console's own
   USB bus, aimed from the movie's axes and never from a mouse. What it cost
   and what it could not prove are in the log.
+- **M8 - the NAMCO arcade boards.** DONE 2026-09-20 for System 246, on a game
+  (chimera issue #72). System 246, System 256 and Super System 256 as three
+  more machines in this package rather than a core of their own - the way
+  Flycast carries NAOMI, NAOMI 2 and Atomiswave. What was proven and what was
+  not is in the log.
 
 ## The package
 
@@ -138,12 +143,124 @@ determinism, the domains, the picture, the pad, lag counting, save data); with
 a disc it proves a game loads and runs identically in the sandbox. Missing
 content reports SKIP with what it would have proven. 13 of 13 green locally.
 
+The NAMCO boards have six legs of their own, once per board, behind
+`PCSX2_S246_ROMS`, `PCSX2_S256_ROMS` and `PCSX2_SS256_ROMS`: equivalence, the
+machine ran, the savestate round-trip, the panel (a coin, which is the one
+control every cabinet has and the one thing a board in attract mode cannot
+ignore), the picture, and that the run wrote nothing into the project. They
+carry their own bios, so they run whether or not a console one is present, and
+they SKIP when no folder is named - which is what CI does.
+
 Lag detection landed with it (patch 0011): a lag frame is a frame the machine
 never looked at its input, and a PS2 looks where the pad answers the SIO poll.
 The first 29 frames of a cold boot are lag frames - the IOP has not loaded its
 pad driver - and the count stops growing the moment it has.
 
 ## Log
+
+- **2026-09-20** The NAMCO System 246 and 256 arcade boards (chimera issue
+  #72). A System 246 is not another emulator: it is a Sony COH-H PlayStation 2
+  with NAMCO's board bolted into the DEV9 expansion bay, so it belongs in this
+  package as three more machines and not in a repository of its own. The
+  evaluation that settled that is in the issue; this is what shipping it cost.
+
+  **The board lives BESIDE upstream, not inside it.** `waterbox/arcade/` holds
+  the eleven sources that are the board - the JVS I/O board, the ATA/ATAPI
+  drive, the UART to a drive board, the settings SRAM, the board RAM and the
+  interrupt core - taken from `PS2Homebrew-arcade/pcsx2x6` (GPL-3.0+, the
+  licence this package already carries). They were WRITTEN to sit beside PCSX2
+  rather than in it, and nine of the ten compiled against our pin unchanged, so
+  putting them in our own tree rather than in the submodule is the whole
+  difference between a pin bump that moves a handful of call sites and one that
+  is a three-way merge. `chimera-arcade.h` is the only thing upstream sees.
+
+  **Everything the board does is behind one runtime flag.** Patch 0023 adds
+  five call sites: the IOP's bus dispatch (`chimera_arcade_present` is 0 for a
+  PlayStation 2 and the hooks then read nothing at all), the `rom1:` mapping a
+  COH-H declares at 0xB0000000 through `rom0:ACDEV`, and the EE and IOP clocks
+  becoming the MACHINE's instead of a constant. That last one is the whole
+  difference between a System 256 and a Super 256: 393.216 MHz against
+  442.368, from the console's 294.912.
+
+  **The board's RAM is allocated per machine, which the fork does not do.**
+  Upstream's arcade fork makes the maximum 128MB a member of the IOP's memory
+  struct, so every machine carries it - in its address space and in every
+  savestate the greenzone keeps. Here it is a buffer sized by the `arcade_ram`
+  setting, a System 256 has none, and a PlayStation 2 project pays nothing for
+  a board it has not got.
+
+  **A project states what the fork looks up.** Upstream reads a `.acgame` INI
+  sitting beside the files, and a manifest on somebody's disk is not something
+  a movie can cite. The machine, the NAMCO part number, the media type, the
+  board RAM, the panel and the four DIP switches are settings; the dongle, the
+  media and the boot program are slots. The one lookup kept is the panel
+  wiring derived from the part number, because how a cabinet was wired is a
+  fact about the game rather than a choice a project makes.
+
+  **TWO THINGS HAD TO BE FIXED BEFORE TEKKEN 4 WOULD BOOT, and both were found
+  by watching the boot rather than by reading the fork.** The board reached
+  `mc0:ACCORE` - the first module NAMCO's own card manager loads off the
+  dongle - and got "no such file", twelve times over, and then gave up to the
+  bios browser.
+  - The memory card's AUTH command (0xF3) put the card's terminator back to
+    the default. MCMANAC, which the dongle carries and the boot loader runs,
+    sets a terminator, authenticates, and then goes on talking to the card
+    with the terminator it set. Not resetting it is what opened every module
+    on the dongle: ACCORE, ACJV, ACRAM, ACSRAM, ACATA, ACCDVD and the rest.
+  - `rom0:DAEMON` starts a security thread at priority 126 while the card is
+    being read, and it races mcman for `mcman_io_sema`. Suppressing it is
+    upstream's own workaround for an IOP scheduling shortfall, and this core
+    needs it too: with it off, the game does not boot at all (7200 frames, all
+    of them lag, three colours on the screen).
+
+  Both are patch 0025 and both are arcade-only: a console's cards have been
+  talking to that code for every movie this core has ever recorded.
+
+  **Two other changes were tried and REVERTED because nothing needed them.**
+  The fork also delays the SIO2 interrupt by the time the port really takes to
+  shift its bytes, and stops a dongle being auto-ejected when the game serial
+  changes. Both are plausible and neither made any difference to a game that
+  boots: 7200 frames of Tekken 4 run with them and without them. A change to
+  the machine that fixes nothing observable is a change that invalidates
+  movies for nothing, so they are not here. If a game turns up that needs
+  them, they are eleven lines each.
+
+  **What is proven, on Tekken 4 (NM00004), System 246 Rack C bios:**
+  1800 frames native == waterboxed, digest for digest; the machine ran (half
+  the frames leave a different machine); a savestate round-trip around every
+  one of 600 frames is lossless; a coin held for five frames at frame 2700
+  changes the machine and changes it identically in the sandbox; and frame
+  7200 is the attract-mode cutscene at 640x448, 89% lit with 75,101 distinct
+  colours, drawn the same natively and sandboxed. The run writes nothing into
+  the project: the board's settings memory leaves through the save-data
+  channel as `sram.bin`, like a memory card.
+
+  **What is NOT proven, and must not be claimed:**
+  - **System 256 and Super System 256 have never been run.** The machines are
+    declared, the clock is wired and the gate legs exist, and no System 256
+    content has been near this machine. They are unproven.
+  - **Only ONE game has ever booted.** The per-game JVS wiring covers 55
+    titles and 54 of them are untested. The racing, drum, twin-stick, touch
+    and light-gun panels have never had a game read them; only the coin and
+    the Tekken layout have.
+  - **The light gun on a board is untested.** It is wired to the movie's axes
+    the way the console's GunCon 2 is, and no arcade gun game has run.
+  - **CD and HDD media are untested.** Tekken 4 is a DVD; the CD path also
+    hands the image to CDVD, and the HDD path has not been opened.
+  - **The board's drive and its UART have not been through an equivalence
+    gate of their own.** They were exercised only by this one game's loading.
+  - **The System 256's regional signature is wired and untested.** The
+    `arcade_region` setting reaches the mechacon's iLink read, which is where
+    the Taiko games look for it, and no game has ever read it here.
+  - **Speed is unmeasured as a claim.** 7200 frames of attract mode took 50
+    seconds natively, which is faster than real time, but an attract mode is
+    not a fight.
+
+  **What each machine narrows.** A System 246 project may only pick a 246 or
+  A-000-010 bios and has no iLink signature to set; a 256 or Super 256 may only
+  pick the 256 dumps and has no board RAM. That is `settingOverrides` on each
+  machine, which is the same mechanism a Master System uses to refuse a Mega
+  Drive's mouse.
 
 - **2026-09-19** The GunCon 2 (chimera issue 71). A PlayStation 2 light gun is
   now a device a port can be set to, and a movie carries where it was pointing
