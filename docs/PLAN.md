@@ -428,3 +428,17 @@ straight to the browser. Guest and native produce the same kilobyte.
   pressure-sensitive and `PAD_PRESSURE` scales how hard the host is pressing
   them. It is a host convenience rather than a control the machine has, so it
   is left out; a movie that wants half-pressed buttons has no way to ask yet.
+
+## Sharp edges hit
+
+- **A light gun is not answered by pointing it** (2026-09-20, chimera#71). With
+  Time Crisis II on the disc, aiming at the target and pulling the trigger
+  changed the machine's memory and never changed its screen: the calibration
+  screen sat there through two hundred frames of held trigger. Upstream's own
+  comment says why - a Time Crisis game calibrates by waiting for the gun to
+  report (0, 0) once a shot is fired, and the emulator produces that sequence
+  only when the RECALIBRATE control is pressed (`calibration_timer` in
+  guncon2.cpp). Press recalibrate, then the trigger, and the screen answers:
+  the target changes and the game walks on to its memory card prompt. The
+  `gun:aims` leg does exactly that, and fails if the machine moves while the
+  picture does not - which is the shape this bug had.

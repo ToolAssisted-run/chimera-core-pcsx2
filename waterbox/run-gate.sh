@@ -630,11 +630,42 @@ fi
 # visible to the machine. padtest.elf reads the controller bus. So the last
 # link in the chain - the frontend's two axes arriving as the coordinates a
 # game reads - waits for one of the discs the gun was built for.
-gungame="$(find "$root/tests/roms" -maxdepth 1 -iname '*guncon*' 2>/dev/null | head -1)"
-if [ -z "$gungame" ]; then
-	report "gun:aims" SKIP "no GunCon 2 disc in tests/roms: would prove the aim and the trigger reach a game"
+# PCSX2_GUN_DISC names one (Time Crisis II is what this was written against);
+# without it the leg says so rather than passing on nothing.
+gungame="${PCSX2_GUN_DISC:-$(find "$root/tests/roms" -maxdepth 1 -iname '*guncon*' 2>/dev/null | head -1)}"
+if [ -z "$gungame" ] || [ ! -f "$gungame" ]; then
+	report "gun:aims" SKIP "set PCSX2_GUN_DISC to a GunCon 2 disc: would prove the aim and the trigger reach a game"
+elif [ -z "$bios" ]; then
+	report "gun:aims" SKIP "needs a bios as well as a GunCon 2 disc"
 else
-	report "gun:aims" SKIP "a disc is here but nothing reads it yet: the leg that would drive it is unwritten"
+	# What the game asks for, in the order it asks. Time Crisis calibrates by
+	# waiting for the gun to report (0, 0) after a shot - which is what the
+	# RECALIBRATE control starts (guncon2.cpp: calibration_timer) - and only
+	# then accepts the trigger. Pressing the trigger alone changes the
+	# machine and never satisfies the screen, which is how this was found.
+	ga="$work/gunaim"
+	mkdir -p "$ga"
+	cp "$bios" "$ga/bios.bin"
+	ln -s "$gungame" "$ga/$(basename "$gungame")" 2>/dev/null || cp "$gungame" "$ga/"
+	printf '{"disc":["%s"]}' "$(basename "$gungame")" > "$ga/slots"
+	printf '{"fast_boot":true,"port1":"guncon2"}' > "$ga/settings"
+	# declared wire indices: 37 trigger, 42 recalibrate (port 1)
+	shots="--press 3000:4:42 --press 3004:12:37"
+	frames="${PCSX2_GUN_FRAMES:-6000}"
+	idle="$("$nat/run-native" "$ga" --frames "$frames" --screenshot "$work/gun.idle.tga" 2>/dev/null | digests)"
+	shot="$("$nat/run-native" "$ga" --frames "$frames" $shots --screenshot "$work/gun.shot.tga" 2>/dev/null | digests)"
+	boxshot="$("$nat/run-wbx" "$gst/core.wbx" "$ga" --frames "$frames" $shots 2>/dev/null | digests)"
+	if [ -z "$idle" ] || [ -z "$shot" ]; then
+		report "gun:aims" FAIL "a run produced no digests"
+	elif [ "$idle" = "$shot" ]; then
+		report "gun:aims" FAIL "the gun made no difference to the machine"
+	elif [ "$shot" != "$boxshot" ]; then
+		report "gun:aims" FAIL "native and sandbox disagree with the gun fired"
+	elif cmp -s "$work/gun.idle.tga" "$work/gun.shot.tga"; then
+		report "gun:aims" FAIL "the machine differed but the picture did not: the game never answered the shot"
+	else
+		report "gun:aims" PASS "$(basename "$gungame"): the shot reached the game and changed its screen, native == waterboxed"
+	fi
 fi
 
 # ---- tier three: a disc ----------------------------------------------------
