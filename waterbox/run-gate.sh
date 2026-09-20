@@ -233,10 +233,19 @@ count_of() { sed -n 's/.*GameDB: \([0-9][0-9]*\) games on record.*/\1/p' <<< "$1
 probe_of() { sed -n 's/.*\(GameDB probe: .*\)/\1/p' <<< "$1" | head -1; }
 n_nat="$(count_of "$gdb_nat")"
 n_box="$(count_of "$gdb_box")"
+# The floor is 5000 rather than 1. Upstream's GameIndex.yaml has carried
+# something close to 12,800 titles for years, and the failure this leg is here
+# for is not only "empty": a generator that stops at the first entry it cannot
+# parse leaves a database with a handful in it, which is the same bug wearing
+# less of it. Nothing upstream is ever going to delete sixty per cent of that
+# file, so this cannot fail on a pin bump; a generator that quietly gave up
+# can and should.
 if [ -z "$n_nat" ] || [ -z "$n_box" ]; then
 	report "gamedb:loaded" FAIL "the core never said how many titles it knows"
 elif [ "$n_nat" -eq 0 ] || [ "$n_box" -eq 0 ]; then
 	report "gamedb:loaded" FAIL "the database is EMPTY (native $n_nat, sandbox $n_box)"
+elif [ "$n_nat" -lt 5000 ] || [ "$n_box" -lt 5000 ]; then
+	report "gamedb:loaded" FAIL "the database lost most of itself: native $n_nat, sandbox $n_box, want 5000+ of upstream's ~12800"
 elif [ "$n_nat" != "$n_box" ]; then
 	report "gamedb:loaded" FAIL "native knows $n_nat titles, the sandbox $n_box"
 else
@@ -913,11 +922,20 @@ arcade_legs "ss256" "system256super" "${PCSX2_SS256_ROMS:-}" "${PCSX2_SS256_GAME
 # frets, a whammy and a tilt; a Jogcon is a pad without its sticks and with a
 # dial; a Negcon has one shoulder each side and a twist; a Pop'n controller is
 # nine buttons and no analog at all.
-chimera_root="${CHIMERA_ROOT:-$root/../../..}"
+# CHIMERA_ROOT, or a checkout where one actually is. The default used to be
+# $root/../../.., which on every layout this repository is cloned into is some
+# ancestor with no Chimera in it - /home, on the machine this was written on -
+# so the leg SKIPped everywhere and had never once run. That is exactly how
+# quickerNES's leg of the same name came to be sitting on a real defect
+# (docs/gates.md, A).
+chimera_root="${CHIMERA_ROOT:-}"
+[ -n "$chimera_root" ] || for c in "$root/chimera-checkout" "$root/../../chimera" "$root/../chimera" "$HOME/chimera"; do
+	[ -x "$c/build/meson-linux/chimera-run" ] && { chimera_root="$c"; break; }
+done
 crun="$chimera_root/build/meson-linux/chimera-run"
 cpkg="$chimera_root/build/Cores/pcsx2.chimeraCore"
-if [ ! -x "$crun" ] || [ ! -f "$cpkg" ] || [ -z "$bios" ] || [ ! -f "$padelf" ]; then
-	report "ports:columns" SKIP "needs chimera-run, a built package, a bios and padtest.elf"
+if [ -z "$chimera_root" ] || [ ! -x "$crun" ] || [ ! -f "$cpkg" ] || [ -z "$bios" ] || [ ! -f "$padelf" ]; then
+	report "ports:columns" SKIP "needs chimera-run, a built pcsx2.chimeraCore, a bios and padtest.elf (set CHIMERA_ROOT; looked in $root/chimera-checkout, $root/../../chimera, $HOME/chimera)"
 else
 	printf '[Input]\nLogKey:#\n' > "$work/none.txt"
 	wrong=""
