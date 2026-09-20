@@ -1,0 +1,105 @@
+diff --git a/pcsx2/GameDatabase.cpp b/pcsx2/GameDatabase.cpp
+index 0ad9a91..9176f29 100644
+--- a/pcsx2/GameDatabase.cpp
++++ b/pcsx2/GameDatabase.cpp
+@@ -14,7 +14,9 @@
+ #include "common/Path.h"
+ #include "common/StringUtil.h"
+ #include "common/Timer.h"
++#ifndef CHIMERA_EMBEDDED_GAMEDB
+ #include "common/YAML.h"
++#endif
+ 
+ #include <sstream>
+ #include "fmt/format.h"
+@@ -26,13 +28,19 @@
+ namespace GameDatabaseSchema
+ {
+ 	static const char* getHWFixName(GSHWFixId id);
++#ifdef CHIMERA_EMBEDDED_GAMEDB
++	std::optional<GSHWFixId> parseHWFixName(const std::string_view name);
++#else
+ 	static std::optional<GSHWFixId> parseHWFixName(const std::string_view name);
++#endif
+ 	static bool isUserHackHWFix(GSHWFixId id);
+ } // namespace GameDatabaseSchema
+ 
+ namespace GameDatabase
+ {
++#ifndef CHIMERA_EMBEDDED_GAMEDB
+ 	static void parseAndInsert(const std::string_view serial, const ryml::NodeRef& node);
++#endif
+ 	static void initDatabase();
+ } // namespace GameDatabase
+ 
+@@ -83,6 +91,7 @@ const char* GameDatabaseSchema::GameEntry::compatAsString() const
+ 	}
+ }
+ 
++#ifndef CHIMERA_EMBEDDED_GAMEDB
+ void GameDatabase::parseAndInsert(const std::string_view serial, const ryml::NodeRef& node)
+ {
+ 	GameDatabaseSchema::GameEntry gameEntry;
+@@ -351,6 +360,7 @@ void GameDatabase::parseAndInsert(const std::string_view serial, const ryml::Nod
+ 
+ 	s_game_db.emplace(std::move(serial), std::move(gameEntry));
+ }
++#endif // !CHIMERA_EMBEDDED_GAMEDB
+ 
+ static const char* s_round_modes[static_cast<u32>(FPRoundMode::MaxCount)] = {
+ 	"Nearest",
+@@ -407,7 +417,11 @@ const char* GameDatabaseSchema::getHWFixName(GSHWFixId id)
+ 	return s_gs_hw_fix_names[static_cast<u32>(id)];
+ }
+ 
++#ifdef CHIMERA_EMBEDDED_GAMEDB
++std::optional<GameDatabaseSchema::GSHWFixId> GameDatabaseSchema::parseHWFixName(const std::string_view name)
++#else
+ static std::optional<GameDatabaseSchema::GSHWFixId> GameDatabaseSchema::parseHWFixName(const std::string_view name)
++#endif
+ {
+ 	for (u32 i = 0; i < std::size(s_gs_hw_fix_names); i++)
+ 	{
+@@ -1015,6 +1029,21 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
+ 	}
+ }
+ 
++#ifdef CHIMERA_EMBEDDED_GAMEDB
++/* chimera: a core has no resources directory. Its file system is whatever the
++ * project mounted, and nobody mounts an emulator's per-title database - so the
++ * read below always failed, and every PS2 game ran with an EMPTY database and
++ * none of its own fixes. The database is compiled in instead; see
++ * waterbox/gen-gamedb.py for what it carries and waterbox/game-database.cpp for
++ * how it is read. It is also then part of the core's identity, pinned by the
++ * package a movie cites, rather than a file that can change underneath one. */
++void ChimeraInitGameDB(std::unordered_map<std::string, GameDatabaseSchema::GameEntry>& db);
++
++void GameDatabase::initDatabase()
++{
++	ChimeraInitGameDB(s_game_db);
++}
++#else
+ void GameDatabase::initDatabase()
+ {
+ 	const std::string path(Path::Combine(EmuFolders::Resources, GAMEDB_YAML_FILE_NAME));
+@@ -1060,6 +1089,7 @@ void GameDatabase::initDatabase()
+ 		}
+ 	}
+ }
++#endif // CHIMERA_EMBEDDED_GAMEDB
+ 
+ void GameDatabase::ensureLoaded()
+ {
+@@ -1122,6 +1152,7 @@ struct TrackHashHasher
+ 	}
+ };
+ 
++#ifndef CHIMERA_EMBEDDED_GAMEDB
+ static constexpr char HASHDB_YAML_FILE_NAME[] = "RedumpDatabase.yaml";
+ std::unordered_map<GameDatabase::TrackHash, u32, TrackHashHasher> s_track_hash_to_entry_map;
+ std::vector<GameDatabase::HashDatabaseEntry> s_hash_database;
+@@ -1318,3 +1349,4 @@ const GameDatabase::HashDatabaseEntry* GameDatabase::lookupHash(
+ 
+ 	return all_okay ? candidate : nullptr;
+ }
++#endif // !CHIMERA_EMBEDDED_GAMEDB

@@ -45,6 +45,7 @@
 #include "CDVD/CDVDcommon.h"
 #include "Config.h"
 #include "GS/GS.h"
+#include "GameDatabase.h"
 #include "Host.h"
 #include "IopMem.h"
 #include "Memory.h"
@@ -838,6 +839,9 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore", "EnableFastBoot", wbx_setting_bool("fast_boot", 1) != 0);
 }
 
+/* what this core knows about one disc serial (waterbox/game-database.cpp) */
+void ChimeraGameDBProbe(const std::string_view serial);
+
 /* ---------------------------------------------------------------------------
  * the chimera guest ABI is a C ABI: the adapter looks these up by name
  */
@@ -914,6 +918,31 @@ ECL_EXPORT int Init(void)
 	}
 
 	VMManager::ApplySettings();
+
+	/* The per-title database, built HERE rather than where upstream first asks
+	 * for it. Two reasons, and both are about the sandbox: it is built before
+	 * the guest is sealed, so it costs nothing in every savestate afterwards;
+	 * and a machine with no disc still says how many titles it knows, which is
+	 * the only way an EMPTY database can be caught before somebody notices a
+	 * game misbehaving months later (chimera issue #117). It is compiled in -
+	 * waterbox/game-database.cpp - so there is nothing to find and nothing to
+	 * fail. */
+	GameDatabase::ensureLoaded();
+
+	/* ...and, if the project asked, what it knows about one serial. A machine
+	 * with an empty tray can answer that, which is what lets the gate catch an
+	 * empty database with no content at all.
+	 *
+	 * Deliberately NOT declared in waterbox.config: it changes nothing about
+	 * the machine, so it is not part of a project and a movie must not carry
+	 * it. It is a question put to the core, not a setting. */
+	{
+		char probe[32] = "";
+		if (wbx_setting_str("gamedb_probe", probe, sizeof(probe)) && probe[0] != '\0')
+		{
+			ChimeraGameDBProbe(probe);
+		}
+	}
 
 	/* The disc, if the project has one. A PS2 with no disc is a PS2 sitting at
 	 * its own bios menu, which is a machine worth being able to boot: it is

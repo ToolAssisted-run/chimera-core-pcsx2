@@ -5,10 +5,14 @@
  * directory, and an audio device. Chimera owns every one of those, or refuses
  * them on purpose:
  *
- *   The GAME DATABASE would silently change the machine's configuration - and
- *   sometimes the game's code - based on a disc serial. A Chimera project
- *   states what it wants; a movie recorded on this core replays on the
- *   settings the movie carries, not on whatever the database said that week.
+ *   The GAME LIST is a library of the user's own files. A core is handed one
+ *   machine's worth of content and knows nothing of a library.
+ *
+ *   The per-title DATABASE is no longer refused, and waterbox/game-database.cpp
+ *   says why: it is compiled into the core, so the package sha1 a movie cites
+ *   pins it as exactly as it pins the emulator, and "whatever the database said
+ *   that week" cannot happen. What is still refused is the part of it that
+ *   rewrites the GAME - the patches, below.
  *
  *   SAVESTATES are the sandbox's own: it snapshots the whole guest, which is
  *   both smaller and more honest than a format that has to know every field.
@@ -39,7 +43,9 @@
 #include "common/ProgressCallback.h"
 
 /* ---------------------------------------------------------------------------
- * The game list and the per-title database.
+ * The game list, and the per-game patches. The per-title database itself is
+ * compiled in and read for real (waterbox/game-database.cpp); these are the
+ * parts of that story a core has no use for.
  */
 namespace GameList
 {
@@ -53,15 +59,6 @@ namespace GameList
 	void AddPlayedTimeForSerial(const std::string& serial, std::time_t last_time, std::time_t add_time) {}
 	std::string GetCustomTitleForPath(const std::string& path) { return {}; }
 } // namespace GameList
-
-namespace GameDatabase
-{
-	const GameDatabaseSchema::GameEntry* findGame(const std::string_view serial) { return nullptr; }
-} // namespace GameDatabase
-
-void GameDatabaseSchema::GameEntry::applyGameFixes(Pcsx2Config& config, bool applyAuto) const {}
-void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions& config) const {}
-std::string GameDatabaseSchema::GameEntry::memcardFiltersAsString() const { return {}; }
 
 namespace Patch
 {

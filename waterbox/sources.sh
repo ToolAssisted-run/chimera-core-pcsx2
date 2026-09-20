@@ -10,6 +10,14 @@
 # or a settings dialog should not.
 #
 # What is deliberately absent, and why:
+#   GameList.cpp, Patch.cpp                       a library of somebody's
+#                                                 files, and code changes made
+#                                                 behind a movie's back.
+#                                                 GameDatabase.cpp IS here -
+#                                                 the per-title fixes are the
+#                                                 machine's, and its data is
+#                                                 compiled in by
+#                                                 waterbox/gen-gamedb.py
 #   GS/Renderers/{Vulkan,DX11,DX12,Metal}         no GPU in a sandbox
 #   GS/Renderers/{OpenGL,HW}                      built only when this core is
 #                                                 given a guest Mesa: then the
@@ -47,7 +55,7 @@ core_srcs() {
 		-e "MTVU.cpp$" \
 		-e "BuildVersion.cpp$" \
 		-e "ImGui" -e "Achievements" -e "Recording" \
-		-e "GameDatabase" -e "GameList" -e "Patch" \
+		-e "GameList" -e "Patch" \
 		-e "SysForwardDefs" -e "USB" -e "DEV9" \
 		-e "IopModuleNames" \
 		-e "SaveState"      # savestates: the sandbox snapshots the whole guest
@@ -126,8 +134,9 @@ gs_srcs() {
 # common/ is PCSX2's own utility library: files, threads, memory, strings.
 common_srcs() {
 	# The utility library, minus what talks to the world: no HTTP client, no
-	# crash handler, no window system, no yaml (the game database is a
-	# frontend's business - a Chimera project states its own settings).
+	# crash handler, no window system, no yaml - PCSX2 takes rapidyaml from the
+	# system and a guest has no system to take it from, which is why the game
+	# database arrives already flattened (waterbox/gen-gamedb.py).
 	# the x86 emitter, which the recompilers are written against
 	find "$p/common/emitter" -name '*.cpp'
 	find "$p/common" -maxdepth 1 -name '*.cpp' | grep -v \

@@ -135,6 +135,13 @@ inc = include_directories(
 add_project_arguments('-I' + mb / 'source/gl', language: ['c', 'cpp'])
 
 
+# PCSX2 opens its per-title database out of a resources directory at runtime;
+# a core has none, so the database is compiled in the same way the shaders are.
+# Not optional and not tied to a renderer: without it every PS2 game runs with
+# an EMPTY database and loses its own fixes (chimera issue #117).
+add_project_arguments('-DCHIMERA_EMBEDDED_GAMEDB', language: ['c', 'cpp'])
+
+
 # A guest Mesa turns on PCSX2's OpenGL renderer: see waterbox/gl-osmesa.cpp
 # for what it is and why it is not a GPU.
 mesa = get_option('mesa_guest_dir')
@@ -149,6 +156,11 @@ endif
 sources_sh = files('waterbox/sources.sh')
 core_sources = files(run_command(sources_sh, 'main', env: sources_env, check: true).stdout().strip().split('\n'))
 dep_sources = files(run_command(sources_sh, 'deps', env: sources_env, check: true).stdout().strip().split('\n'))
+
+gamedb_cpp = custom_target('chimera-gamedb',
+  output: 'chimera-gamedb.cpp',
+  command: [find_program('python3'), files('waterbox/gen-gamedb.py'),
+    meson.current_source_dir() / fc / 'bin/resources/GameIndex.yaml', '@OUTPUT@'])
 
 # PCSX2 reads its GLSL out of a resources directory; a core has none, so the
 # shaders are compiled in (waterbox/gen-shaders.py says why).
@@ -186,6 +198,7 @@ deps_lib = static_library('pcsx2-deps', dep_sources, include_directories: inc)
 # refuses and why; none of them patch upstream.
 driver_sources = files(
   'waterbox/cinterface.cpp',
+  'waterbox/game-database.cpp',
   'waterbox/host.cpp',
   'waterbox/host-sys.cpp',
   'waterbox/gs-device.cpp',
@@ -196,6 +209,8 @@ driver_sources = files(
   'waterbox/stubs/host-stubs.cpp',
   'waterbox/stubs/posix-stubs.cpp',
 )
+# the per-title database, flattened out of the pinned submodule at build time
+driver_sources += gamedb_cpp
 
 if meson.is_cross_build()
   # ---- the guest: core.wbx --------------------------------------------------
