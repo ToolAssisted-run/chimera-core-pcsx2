@@ -1,0 +1,102 @@
+--- a/pcsx2/SIO/Memcard/MemoryCardProtocol.cpp
++++ b/pcsx2/SIO/Memcard/MemoryCardProtocol.cpp
+@@ -2,6 +2,9 @@
+ // SPDX-License-Identifier: GPL-3.0+
+ 
+ #include "SIO/Memcard/MemoryCardProtocol.h"
++#ifdef CHIMERA_ARCADE
++#include "chimera-arcade.h"
++#endif
+ 
+ #include "SIO/Sio.h"
+ #include "SIO/Sio2.h"
+@@ -517,7 +520,17 @@
+ 	}
+ 	else
+ 	{
+-		mcd->term = Terminator::READY;
++#ifdef CHIMERA_ARCADE
++		/* chimera: the auth command does not put the card's terminator back to
++		 * the default. NAMCO's own card manager (MCMANAC, off the dongle) sets
++		 * a terminator, authenticates, and then goes on talking to the card
++		 * with the terminator it set - and a card that quietly reverted would
++		 * answer every subsequent command with a byte the driver does not
++		 * expect. Arcade-only: a console's cards have been talking to this
++		 * code for every movie this core has recorded. */
++		if (!chimera_arcade_present)
++#endif
++			mcd->term = Terminator::READY;
+ 		The2bTerminator(5);
+ 	}
+ }
+--- a/pcsx2/IopBios.cpp
++++ b/pcsx2/IopBios.cpp
+@@ -4,6 +4,9 @@
+ #include "Common.h"
+ #include "DebugTools/SymbolGuardian.h"
+ #include "IopBios.h"
++#ifdef CHIMERA_ARCADE
++#include "chimera-arcade.h"
++#endif
+ #include "IopMem.h"
+ #include "R3000A.h"
+ #include "R5900.h"
+@@ -1240,6 +1243,45 @@
+ 		}
+ 	} // namespace loadcore
+ 
++#ifdef CHIMERA_ARCADE
++	/* chimera: the NAMCO board's dongle is a memory card, and the boot
++	 * software opens files on it (mc0:ACCORE and the rest) as the first thing
++	 * it does. The DAEMON module starts a security thread at priority 126
++	 * while that is happening, and it races mcman for mcman_io_sema: the card
++	 * opens come back fd=-6 and the board resets to its bios browser, which is
++	 * exactly what this core did on its first boot of Tekken 4. Real hardware
++	 * does not show it - the IOP schedules at a different granularity - so
++	 * this is an accuracy shortfall being worked around at the only place it
++	 * is visible, and it should go when the IOP's scheduling is closer.
++	 *
++	 * Taken from PS2Homebrew-arcade/pcsx2x6, where it is a JVS option; here it
++	 * is unconditional on an arcade machine and absent on a PlayStation 2,
++	 * because a console has no dongle to race for. */
++	namespace thbase
++	{
++		static bool s_suppress_next_start = false;
++
++		int CreateThread_HLE()
++		{
++			if (chimera_arcade_present && iopMemRead32(a0 + 16) >= 126)
++				s_suppress_next_start = true;
++			return 0;
++		}
++
++		int StartThread_HLE()
++		{
++			if (s_suppress_next_start)
++			{
++				s_suppress_next_start = false;
++				v0 = 0;
++				pc = ra;
++				return 1;
++			}
++			return 0;
++		}
++	} // namespace thbase
++#endif
++
+ 	namespace intrman
+ 	{
+ 		// clang-format off
+@@ -1364,6 +1406,12 @@
+ 		MODULE(sysmem)
+ 			EXPORT_H( 14, Kprintf)
+ 		END_MODULE
++#ifdef CHIMERA_ARCADE
++		MODULE(thbase)
++			EXPORT_H(  4, CreateThread)
++			EXPORT_H(  6, StartThread)
++		END_MODULE
++#endif
+ 
+ 		// Special case with ioman and iomanX
+ 		// They are mostly compatible excluding stat structures
