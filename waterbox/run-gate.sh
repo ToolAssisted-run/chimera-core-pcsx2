@@ -85,6 +85,68 @@ else
 	report "nobios:refuses" PASS "both flavors refuse, and say why"
 fi
 
+# ---- the per-title database ------------------------------------------------
+# PCSX2 keeps what it knows about individual games in GameIndex.yaml - clamp
+# modes, round modes, game fixes, GS hardware fixes - and upstream OPENS that
+# file at runtime, out of a resources directory a core does not have. So for
+# months this core ran every PS2 game with an EMPTY database and none of its own
+# corrections, and nothing here could tell: an empty database looks exactly like
+# a full one from outside. Final Fantasy X's characters faced the wrong way in
+# the Geosgaeno fight (chimera issue #117) because SLUS-20312's eeClampMode 3
+# never reached the machine.
+#
+# It is compiled in now (waterbox/gen-gamedb.py), which is why this leg needs no
+# content: a machine with an empty tray can still say how many titles it knows
+# and what it knows about one of them. An empty database fails the gate.
+gdb_dir="$work/gamedb"
+mkdir -p "$gdb_dir"
+printf '{"verbose":true,"gamedb_probe":"SLUS-20312"}' > "$gdb_dir/settings"
+plain() { sed 's/\x1b\[[0-9;]*m//g'; }  # the sandbox runner colours its relay
+gdb_nat="$("$nat/run-native" "$gdb_dir" --frames 1 2>&1 | plain)"
+gdb_box="$("$nat/run-wbx" "$gst/core.wbx" "$gdb_dir" --frames 1 2>&1 | plain)"
+count_of() { sed -n 's/.*GameDB: \([0-9][0-9]*\) games on record.*/\1/p' <<< "$1" | head -1; }
+probe_of() { sed -n 's/.*\(GameDB probe: .*\)/\1/p' <<< "$1" | head -1; }
+n_nat="$(count_of "$gdb_nat")"
+n_box="$(count_of "$gdb_box")"
+if [ -z "$n_nat" ] || [ -z "$n_box" ]; then
+	report "gamedb:loaded" FAIL "the core never said how many titles it knows"
+elif [ "$n_nat" -eq 0 ] || [ "$n_box" -eq 0 ]; then
+	report "gamedb:loaded" FAIL "the database is EMPTY (native $n_nat, sandbox $n_box)"
+elif [ "$n_nat" != "$n_box" ]; then
+	report "gamedb:loaded" FAIL "native knows $n_nat titles, the sandbox $n_box"
+else
+	report "gamedb:loaded" PASS "$n_nat titles, compiled in, native == waterboxed"
+fi
+
+# ...and the one entry this was found through, read back from the parsed
+# database rather than from the file it was generated from. Every field here is
+# what SLUS-20312 asks for upstream; eeClamp=3 is the one that turns the
+# characters back round.
+# The claim is checked by field rather than by whole line, so a pin bump that
+# adds a fix to this title does not fail a gate about a different one.
+got_nat="$(probe_of "$gdb_nat")"
+got_box="$(probe_of "$gdb_box")"
+entry_ok() { # <probe line>
+	case "$1" in
+		*'name="Final Fantasy X"'*) ;;
+		*) return 1 ;;
+	esac
+	case "$1" in
+		*' eeClamp=3 '*) ;;
+		*) return 1 ;;
+	esac
+	return 0
+}
+if [ -z "$got_nat" ] || [ -z "$got_box" ]; then
+	report "gamedb:entry" FAIL "the core did not answer the probe at all"
+elif ! entry_ok "$got_nat"; then
+	report "gamedb:entry" FAIL "native: $got_nat"
+elif ! entry_ok "$got_box"; then
+	report "gamedb:entry" FAIL "sandbox: $got_box"
+else
+	report "gamedb:entry" PASS "SLUS-20312 is Final Fantasy X and carries eeClampMode 3, in both flavors"
+fi
+
 # ---- what content there is -------------------------------------------------
 bios="${CHIMERA_PS2_BIOS:-}"
 if [ -z "$bios" ]; then
