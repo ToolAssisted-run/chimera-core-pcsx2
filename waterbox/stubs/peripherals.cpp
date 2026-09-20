@@ -9,6 +9,12 @@
  * IOP's io map does, so they are answered here: reads return the bus's idle
  * value, writes go nowhere, and the console sees an empty bay.
  *
+ * ...unless the machine is a System 246 or 256, which is a PlayStation 2 with
+ * NAMCO's board IN that bay. Three of these entry points are then real - the
+ * pending interrupt and the two halves of the ATA/ATAPI DMA - and they go to
+ * waterbox/arcade/. That is a far better answer than compiling upstream's
+ * 1,161-line DEV9.cpp and its network stack to reach three functions.
+ *
  * The other optional bay - USB - used to be answered the same way, and is not
  * any more: the GunCon 2 is a USB device, so the OHCI controller and that one
  * peripheral are compiled (waterbox/sources.sh, patch 0022). A port with
@@ -26,6 +32,9 @@
  * driving.
  */
 #include "DEV9/DEV9.h"
+#ifdef CHIMERA_ARCADE
+#include "chimera-arcade.h"
+#endif
 #include "Input/InputManager.h"
 #include "Recording/InputRecording.h"
 #include "Recording/InputRecordingControls.h"
@@ -45,10 +54,17 @@ s32 DEV9init() { return 0; }
 void DEV9close() {}
 s32 DEV9open() { return 0; }
 void DEV9shutdown() {}
+#ifdef CHIMERA_ARCADE
+int DEV9irqHandler(void) { return ChimeraArcadeIrqHandler(); }
+void DEV9async(u32 cycles) { ChimeraArcadeAsync(cycles); }
+void DEV9writeDMA8Mem(u32* pMem, int size) { ChimeraArcadeWriteDMA8Mem(pMem, size); }
+void DEV9readDMA8Mem(u32* pMem, int size) { ChimeraArcadeReadDMA8Mem(pMem, size); }
+#else
 int DEV9irqHandler(void) { return 0; }
 void DEV9async(u32 cycles) {}
 void DEV9writeDMA8Mem(u32* pMem, int size) {}
 void DEV9readDMA8Mem(u32* pMem, int size) {}
+#endif
 u8 DEV9read8(u32 addr) { return 0; }
 u16 DEV9read16(u32 addr) { return 0; }
 u32 DEV9read32(u32 addr) { return 0; }

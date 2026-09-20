@@ -51,6 +51,11 @@ defs = [
   # -Djit_rasterizer=true takes the other one, for a NATIVE reference that says
   # whether the two agree (they must; run-gate.sh's rasteriser leg checks it).
   '-DCHIMERA_SOFTWARE_ONLY', '-DCHIMERA_NO_INPUT_SOURCES', '-DCHIMERA_NO_GS_THREAD', '-DCHIMERA_NO_SHARED_MEMORY', '-DCHIMERA_FLAT_FILESYSTEM', '-DCHIMERA_MEMCARD_IN_MEMORY', '-DCHIMERA_NVRAM_IN_MEMORY', '-DCHIMERA_LAG_DETECTION',
+  # The NAMCO System 246/256 boards: this package is a PlayStation 2 and the
+  # three arcade machines Sony and NAMCO built out of one (waterbox/arcade/).
+  # The define is what upstream's handful of hook sites are behind; which machine a
+  # session is comes from the project, at runtime.
+  '-DCHIMERA_ARCADE',
   # zstd ships hand-written amd64 assembly for one decode loop. The C path is
   # the same bytes out and one source language fewer in a cross-built guest.
   '-DZSTD_DISABLE_ASM',
@@ -125,6 +130,7 @@ inc = include_directories(
   'extern/lz4/lib',
   'waterbox',
   'waterbox/generated',
+  'waterbox/arcade',
 )
 
 # The GPU bridge's shared contract and its generated opcodes, as a -I rather
@@ -211,6 +217,27 @@ driver_sources = files(
 )
 # the per-title database, flattened out of the pinned submodule at build time
 driver_sources += gamedb_cpp
+
+# The NAMCO board: the JVS I/O board, the ATA/ATAPI drive, the UART to a drive
+# board, the settings SRAM and the board RAM that make a PlayStation 2 into a
+# System 246 or 256. They come from PS2Homebrew-arcade/pcsx2x6 (GPL-3.0+, the
+# licence this package already carries) and they sit BESIDE upstream rather
+# than inside it - which is how they were written, and what keeps a pin bump
+# the pin-bump cost to the handful of hook sites in patch 0023 rather than a merge.
+arcade_sources = files(
+  'waterbox/arcade/chimera-arcade.cpp',
+  'waterbox/arcade/ACATA.cpp',
+  'waterbox/arcade/ACATAPI.cpp',
+  'waterbox/arcade/ACATA_IO.cpp',
+  'waterbox/arcade/ACATA_IO_CHD.cpp',
+  'waterbox/arcade/ACCORE.cpp',
+  'waterbox/arcade/ACJV.cpp',
+  'waterbox/arcade/ACRAM.cpp',
+  'waterbox/arcade/ACSRAM.cpp',
+  'waterbox/arcade/ACUART.cpp',
+  'waterbox/arcade/ACUART_GLUE.cpp',
+)
+driver_sources += arcade_sources
 
 if meson.is_cross_build()
   # ---- the guest: core.wbx --------------------------------------------------

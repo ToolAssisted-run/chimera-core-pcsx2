@@ -176,6 +176,55 @@
       "P8 L3": "J8 B11, X8 LeftStick",
       "P8 R3": "J8 B12, X8 RightStick",
       "P8 Analog": "J8 B13"
+    },
+    "Arcade Panel": {
+      "P1 Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
+      "P1 Down": "Down, J1 POV1D, X1 DpadDown, X1 LStickDown",
+      "P1 Left": "Left, J1 POV1L, X1 DpadLeft, X1 LStickLeft",
+      "P1 Right": "Right, J1 POV1R, X1 DpadRight, X1 LStickRight",
+      "P1 Button 1": "A, J1 B1, X1 X",
+      "P1 Button 2": "S, J1 B4, X1 Y",
+      "P1 Button 3": "Q, J1 B5, X1 LeftShoulder",
+      "P1 Button 4": "Z, J1 B2, X1 A",
+      "P1 Button 5": "X, J1 B3, X1 B",
+      "P1 Button 6": "W, J1 B6, X1 RightShoulder",
+      "P1 Start": "Enter, J1 B10, X1 Start",
+      "P1 Service": "RightShift, J1 B9, X1 Back",
+      "P2 Up": "J2 POV1U, X2 DpadUp, X2 LStickUp",
+      "P2 Down": "J2 POV1D, X2 DpadDown, X2 LStickDown",
+      "P2 Left": "J2 POV1L, X2 DpadLeft, X2 LStickLeft",
+      "P2 Right": "J2 POV1R, X2 DpadRight, X2 LStickRight",
+      "P2 Button 1": "J2 B1, X2 X",
+      "P2 Button 2": "J2 B4, X2 Y",
+      "P2 Button 3": "J2 B5, X2 LeftShoulder",
+      "P2 Button 4": "J2 B2, X2 A",
+      "P2 Button 5": "J2 B3, X2 B",
+      "P2 Button 6": "J2 B6, X2 RightShoulder",
+      "P2 Start": "J2 B10, X2 Start",
+      "P2 Service": "J2 B9, X2 Back",
+      "Coin 1": "5",
+      "Coin 2": "6",
+      "P1 Don Left": "",
+      "P1 Don Right": "",
+      "P1 Ka Left": "",
+      "P1 Ka Right": "",
+      "P2 Don Left": "",
+      "P2 Don Right": "",
+      "P2 Ka Left": "",
+      "P2 Ka Right": "",
+      "P1 Left Lever Up": "",
+      "P1 Left Lever Down": "",
+      "P1 Left Lever Left": "",
+      "P1 Left Lever Right": "",
+      "P1 Right Lever Up": "",
+      "P1 Right Lever Down": "",
+      "P1 Right Lever Left": "",
+      "P1 Right Lever Right": "",
+      "P1 Left Trigger": "",
+      "P1 Right Trigger": "",
+      "P1 Left Button": "",
+      "P1 Right Button": "",
+      "Touch": ""
     }
   },
   "AllTrollersAutoFire": {
@@ -430,6 +479,71 @@
       },
       "P8 Right Stick Y": {
         "Value": "X8 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      }
+    },
+    "Arcade Panel": {
+      "Steering": {
+        "Value": "X1 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "Accelerator": {
+        "Value": "X1 RightTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "Brake": {
+        "Value": "X1 LeftTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "Touch X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "Touch Y": {
+        "Value": "",
         "Mult": 1.0,
         "Deadzone": 0.1,
         "ButtonBindPositive": "",

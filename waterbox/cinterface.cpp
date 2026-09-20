@@ -64,6 +64,13 @@
 #include "common/FileSystem.h"
 #include "fmt/format.h"
 #include "common/SettingsInterface.h"
+#ifdef CHIMERA_ARCADE
+/* The NAMCO board, when the project says this machine is one (waterbox/arcade/). */
+#include "chimera-arcade.h"
+#include "ACATA.h"
+#include "ACJV.h"
+#include "ACSRAM.h"
+#endif
 #ifdef CHIMERA_GUEST_GL
 #include "GS/Renderers/Common/GSDevice.h"
 #include "glad/gl.h"
@@ -213,6 +220,15 @@ static const char* const MEMCARD_NAME[PS2_SLOTS] = {
  * clock configuration, the region parameters, the machine's iLink id. PCSX2
  * names it after the bios file, and so does this. */
 static const char* const NVRAM_NAME = "bios.nvm";
+
+#ifdef CHIMERA_ARCADE
+/* The NAMCO board's 32KB of battery-backed settings memory. */
+static const char* const ARCADE_SRAM_NAME = "sram.bin";
+/* Which board the project pinned. Declared here because the settings layer
+ * below has to know before the board itself is built - the dongle is a memory
+ * card, and cards are decided with the rest of the settings. */
+static int ArcadeBoardFromSettings(void);
+#endif
 
 /* The GPU bridge (experiment; see waterbox/gl-bridge.h). Only where there is a
  * GL renderer to drive: the native reference build has the software rasteriser
@@ -540,10 +556,128 @@ static void ApplyInputSlot(int slot)
 		SetHalfAxis(pad, sticks[i].negative, sticks[i].positive, ax[sticks[i].axis]);
 }
 
+
+#ifdef CHIMERA_ARCADE
+/* ---------------------------------------------------------------------------
+ * The Arcade Panel.
+ *
+ * A cabinet is not a console: there are no controller ports, there is a JVS
+ * I/O board with a loom going to whatever the cabinet was built with. One
+ * declaration covers every layout the fifty-five System 246 and 256 games use,
+ * because a declaration is static and cannot know what a project chose - the
+ * JVS board simply never reads the bits its own wiring has not got, exactly as
+ * a PS2 port ignores the controls of a device it is not set to.
+ *
+ * The order here IS the package's "Arcade Panel" control list, and a movie's
+ * columns are these. Nothing may be inserted in the middle of it.
+ */
+enum
+{
+	ARCADE_P1_UP = 0, ARCADE_P1_DOWN, ARCADE_P1_LEFT, ARCADE_P1_RIGHT,
+	ARCADE_P1_B1, ARCADE_P1_B2, ARCADE_P1_B3, ARCADE_P1_B4, ARCADE_P1_B5, ARCADE_P1_B6,
+	ARCADE_P1_START, ARCADE_P1_SERVICE,
+	ARCADE_P2_UP, ARCADE_P2_DOWN, ARCADE_P2_LEFT, ARCADE_P2_RIGHT,
+	ARCADE_P2_B1, ARCADE_P2_B2, ARCADE_P2_B3, ARCADE_P2_B4, ARCADE_P2_B5, ARCADE_P2_B6,
+	ARCADE_P2_START, ARCADE_P2_SERVICE,
+	ARCADE_COIN1, ARCADE_COIN2,
+	ARCADE_DRUM_FIRST,
+	ARCADE_TWIN_FIRST = ARCADE_DRUM_FIRST + 8,
+	ARCADE_TOUCH_PRESS = ARCADE_TWIN_FIRST + 12,
+	ARCADE_BTN_COUNT,
+};
+enum
+{
+	ARCADE_AXIS_STEER = 0, ARCADE_AXIS_GAS, ARCADE_AXIS_BRAKE,
+	ARCADE_AXIS_P1_GUN_X, ARCADE_AXIS_P1_GUN_Y,
+	ARCADE_AXIS_P2_GUN_X, ARCADE_AXIS_P2_GUN_Y,
+	ARCADE_AXIS_TOUCH_X, ARCADE_AXIS_TOUCH_Y,
+	ARCADE_AXIS_COUNT,
+};
+
+/* The JVS switch-word bit each panel button is: the board's own wiring, from
+ * waterbox/arcade/ACJV.h. Twelve per player, and the same twelve for both. */
+static const u16 kArcadePlayerBits[12] = {
+	JVS_BTN_UP, JVS_BTN_DOWN, JVS_BTN_LEFT, JVS_BTN_RIGHT,
+	JVS_BTN_1, JVS_BTN_2, JVS_BTN_3, JVS_BTN_4, JVS_BTN_5, JVS_BTN_6,
+	JVS_BTN_START, JVS_BTN_SERVICE,
+};
+/* Taiko's eight piezo sensors, in the order the panel declares them (P1 Don
+ * left/right, P1 Ka left/right, then P2's) against the channel each one
+ * MEASURED as in the game's own TAIKO TEST - which is scrambled. */
+static const u32 kArcadeDrumChannel[8] = {0, 3, 5, 4, 2, 7, 1, 6};
+/* Zoids' twin levers, triggers and buttons: switch-word bits of their own. */
+static const u16 kArcadeTwinBits[12] = {
+	0x0001, 0x8000, 0x4000, 0x2000,   /* left lever  up, down, left, right */
+	0x0010, 0x0008, 0x0004, 0x0002,   /* right lever up, down, left, right */
+	0x0400, 0x1000,                   /* left and right trigger */
+	0x0200, 0x0800,                   /* left and right button  */
+};
+
+static uint8_t g_arcadeButtons[ARCADE_BTN_COUNT];
+static int16_t g_arcadeAxes[ARCADE_AXIS_COUNT];
+static uint8_t g_arcadeCoinWas[2];
+
+static float ArcadeUnit(int index) /* an axis as 0..1 */
+{
+	return (static_cast<float>(g_arcadeAxes[index]) + 32768.0f) / 65535.0f;
+}
+
+/* Every frame, before the machine runs. The JVS board reads what is set here
+ * when the game next polls it, which is the same rule the pads follow. */
+static void ApplyArcadeInput(void)
+{
+	for (int p = 0; p < 2; p++)
+		for (int i = 0; i < 12; i++)
+			ACJV::SetButtonState(p, kArcadePlayerBits[i],
+				g_arcadeButtons[(p == 0 ? ARCADE_P1_UP : ARCADE_P2_UP) + i] != 0);
+
+	/* A coin is an EVENT, not a state: the board counts the pulses a coin
+	 * mech sends, so a held button must insert one coin and not a thousand. */
+	for (int slot = 0; slot < 2; slot++)
+	{
+		const uint8_t now = g_arcadeButtons[ARCADE_COIN1 + slot];
+		if (now && !g_arcadeCoinWas[slot])
+			ACJV::InsertCoin(static_cast<u32>(slot));
+		g_arcadeCoinWas[slot] = now;
+	}
+
+	for (int i = 0; i < 8; i++)
+		ACJV::SetDrumHit(kArcadeDrumChannel[i], g_arcadeButtons[ARCADE_DRUM_FIRST + i] != 0);
+	for (int i = 0; i < 12; i++)
+		ACJV::SetButtonState(0, kArcadeTwinBits[i], g_arcadeButtons[ARCADE_TWIN_FIRST + i] != 0);
+
+	/* The wheel: one steering axis rather than the board's two half-axes,
+	 * because a wheel has one position and a movie should carry one column
+	 * for it. The pedals are half-axes and stay that way. */
+	const float steer = static_cast<float>(g_arcadeAxes[ARCADE_AXIS_STEER]) / 32767.0f;
+	ACJV::SetWheelAxis(0, steer > 0.0f ? steer : 0.0f);
+	ACJV::SetWheelAxis(1, steer < 0.0f ? -steer : 0.0f);
+	ACJV::SetWheelAxis(2, ArcadeUnit(ARCADE_AXIS_GAS));
+	ACJV::SetWheelAxis(3, ArcadeUnit(ARCADE_AXIS_BRAKE));
+
+	/* Where the guns point, and where the touch panel is being touched: an
+	 * absolute position on the screen, from the movie and from nowhere else. */
+	ACJV::SetGunRelativeAim(0, ArcadeUnit(ARCADE_AXIS_P1_GUN_X), ArcadeUnit(ARCADE_AXIS_P1_GUN_Y));
+	ACJV::SetGunRelativeAim(1, ArcadeUnit(ARCADE_AXIS_P2_GUN_X), ArcadeUnit(ARCADE_AXIS_P2_GUN_Y));
+	ACJV::SetTouchRelativeAxis(0, static_cast<float>(g_arcadeAxes[ARCADE_AXIS_TOUCH_X]) / 32767.0f);
+	ACJV::SetTouchRelativeAxis(2, static_cast<float>(g_arcadeAxes[ARCADE_AXIS_TOUCH_Y]) / 32767.0f);
+	ACJV::SetTouchPressed(g_arcadeButtons[ARCADE_TOUCH_PRESS] != 0);
+}
+#endif /* CHIMERA_ARCADE */
+
 /* Every slot, every frame. A slot set to 'none' holds a PadNotConnected, which
  * has nothing to write to. */
 static void ApplyInput()
 {
+#ifdef CHIMERA_ARCADE
+	/* An arcade cabinet has no controller ports at all: its whole panel is the
+	 * JVS board, and the eight SIO slots below are not there to be written. */
+	if (chimera_arcade_present)
+	{
+		ApplyArcadeInput();
+		return;
+	}
+#endif
 	for (int slot = 0; slot < PS2_SLOTS; slot++)
 		ApplyInputSlot(slot);
 }
@@ -576,6 +710,11 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("Logging", "EnableSystemConsole", verbose);
 	si.SetBoolValue("Logging", "EnableVerbose", verbose);
 	si.SetBoolValue("Logging", "EnableFileLogging", false);
+	/* ...and what the PROGRAM says, which is the thing a project that will not
+	 * start is usually trying to tell you: the EE's and the IOP's own printf.
+	 * A boot loader that gives up says why here and nowhere else. */
+	si.SetBoolValue("Logging", "EnableEEConsole", verbose);
+	si.SetBoolValue("Logging", "EnableIOPConsole", verbose);
 
 	/* ...and the folders it is all mounted in, which is one folder. */
 	static const char* const folders[] = {"Bios", "Snapshots", "Savestates", "MemoryCards", "Logs",
@@ -754,6 +893,30 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		}
 	}
 
+#ifdef CHIMERA_ARCADE
+	/* The security dongle. It is not a security chip: it is a dump of the
+	 * game's own COH-H10020 MEMORY CARD, and it holds the boot software the
+	 * board runs - so it arrives on the bus in card slot 1, exactly where the
+	 * cabinet has it. Nothing new is needed to carry it: a memory card in this
+	 * core is already a buffer the save-data channel fills (patch 0009), and
+	 * the dongle simply rides in as the card of a different name. Upstream's
+	 * fork warns that DONGLEMAN rewrites the file at runtime; here it is a
+	 * buffer, so what the run wrote leaves through the channel and the
+	 * project's own copy is untouched. */
+	if (ArcadeBoardFromSettings() != CHIMERA_ARCADE_NONE)
+	{
+		char dongle[512];
+		if (wbx_slot_count("dongle") > 0
+			&& wbx_slot_name("dongle", 0, dongle, sizeof(dongle)) != nullptr)
+		{
+			si.SetBoolValue("MemoryCards", "Slot1_Enable", true);
+			si.SetStringValue("MemoryCards", "Slot1_Filename", dongle);
+			if (verbose)
+				fprintf(stderr, "chimera: the security dongle is \"%s\", in card slot 1\n", dongle);
+		}
+	}
+#endif
+
 	/* The multitaps, and what is plugged into each of the eight slots.
 	 *
 	 * A multitap is its own setting rather than something guessed from the
@@ -839,6 +1002,157 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore", "EnableFastBoot", wbx_setting_bool("fast_boot", 1) != 0);
 }
 
+#ifdef CHIMERA_ARCADE
+/* ---------------------------------------------------------------------------
+ * The NAMCO boards: System 246, System 256 and Super System 256.
+ *
+ * A System 246 game is not a disc. It is a bundle: an arcade PS2 bios from a
+ * COH-H board, the game's security DONGLE (a dump of its COH-H10020 memory
+ * card, which holds the boot software), the game's MEDIA (a CD, a DVD or a
+ * hard disk, read by the board's own ATA/ATAPI controller rather than by the
+ * console's laser) and a BOOT PROGRAM. Upstream's arcade fork reads all four
+ * out of a .acgame manifest sitting beside the files. A manifest on somebody's
+ * disk is not something a movie can cite, so here every one of them is a
+ * project's own: the machine is a setting, the files are slots, and what the
+ * fork looks up in a game database this core is TOLD.
+ */
+static int g_arcadeBoard = CHIMERA_ARCADE_NONE;
+
+static int ArcadeBoardFromSettings(void)
+{
+	char machine[32] = "ps2";
+	wbx_setting_str("machine", machine, sizeof(machine));
+	if (!strcmp(machine, "system246")) return CHIMERA_ARCADE_246;
+	if (!strcmp(machine, "system256")) return CHIMERA_ARCADE_256;
+	if (!strcmp(machine, "system256super")) return CHIMERA_ARCADE_SUPER256;
+	return CHIMERA_ARCADE_NONE;
+}
+
+/* How much RAM the rack carries. A System 246 rack takes expansion PCBs of 32
+ * or 64MB and Wangan Midnight's takes four of them; a System 256 has none. It
+ * is a SETTING rather than a guess from the game id, because a project has to
+ * be able to state the cabinet it is, and because the board RAM is in every
+ * savestate the greenzone keeps: 128MB of it is not free. */
+static u32 ArcadeRamBytes(void)
+{
+	char ram[16] = "";
+	wbx_setting_str("arcade_ram", ram, sizeof(ram));
+	const long mib = strtol(ram, nullptr, 10);
+	return static_cast<u32>((mib > 0 ? mib : 0)) * 1024u * 1024u;
+}
+
+static JVS_MODE ArcadeJvsMode(const std::string& gameid)
+{
+	char mode[24] = "derived";
+	wbx_setting_str("arcade_panel", mode, sizeof(mode));
+	if (!strcmp(mode, "standard"))  return JVS_MODE::STANDARD;
+	if (!strcmp(mode, "fighting"))  return JVS_MODE::FIGHTING;
+	if (!strcmp(mode, "lightgun"))  return JVS_MODE::LIGHTGUN;
+	if (!strcmp(mode, "racing"))    return JVS_MODE::DRIVE;
+	if (!strcmp(mode, "drum"))      return JVS_MODE::DRUM;
+	if (!strcmp(mode, "twinstick")) return JVS_MODE::TWINSTICK;
+	if (!strcmp(mode, "touch"))     return JVS_MODE::TOUCH;
+	/* "derived": the fork's own table, keyed by the NAMCO part number - the
+	 * one lookup worth keeping, because the panel a cabinet was built with is
+	 * a fact about the game and not a choice a project makes. */
+	return ACJV::ResolveModeFromGameId(gameid);
+}
+
+/* The iLink signature a System 256 reads as its region. It lives in the
+ * board's NVRAM on real hardware; the Taiko games are the ones that care.
+ * CDVD's mechacon read hands it back (patch 0023). */
+extern std::string ChimeraArcadeILinkID;
+
+/* Built BEFORE the machine is, because the board decides the EE and IOP
+ * clocks and those are read while the counters are set up. Returns a message
+ * on failure. */
+static const char* SetUpArcadeBoard(bool verbose)
+{
+	g_arcadeBoard = ArcadeBoardFromSettings();
+	chimera_arcade_verbose = verbose ? 1 : 0;
+	if (g_arcadeBoard == CHIMERA_ARCADE_NONE)
+	{
+		ChimeraArcadeShutdown();
+		return nullptr;
+	}
+
+	if (const char* failed = ChimeraArcadeInit(g_arcadeBoard, ArcadeRamBytes()))
+		return failed;
+
+	char gameid[16] = "";
+	wbx_setting_str("arcade_game", gameid, sizeof(gameid));
+	const std::string id = gameid;
+	if (!id.empty())
+		ACJV::SetGameId(id);
+	ACJV::SetMode(ArcadeJvsMode(id));
+
+	char region[16] = "none";
+	wbx_setting_str("arcade_region", region, sizeof(region));
+	if (!strcmp(region, "asia4")) ChimeraArcadeILinkID = "ASIA4";
+	else if (!strcmp(region, "asia5")) ChimeraArcadeILinkID = "ASIA5";
+	else if (!strcmp(region, "japan")) ChimeraArcadeILinkID = "JAPAN";
+	else ChimeraArcadeILinkID.clear();
+
+	/* The four switches the cabinet really has. They are machine state a movie
+	 * has to cite, so they are settings rather than hotkeys. */
+	static const char* const kDips[] = {"dip_test", "dip_video_voltage",
+		"dip_monitor_sync", "dip_video_sync_split"};
+	static const int kDipDefault[] = {0, 1, 1, 1};
+	for (u32 i = 0; i < ACJV::NUM_DIP_SWITCHES; i++)
+		ACJV::SetDIPSwitchState(i, wbx_setting_bool(kDips[i], kDipDefault[i]) != 0);
+
+	/* What the cabinet starts with in its settings memory, if the project
+	 * brought any. It is mounted under its own name like every other save-data
+	 * file; a project with none starts from a board nobody has configured. */
+	if (auto sram = FileSystem::ReadBinaryFile("sram.bin"); sram.has_value())
+	{
+		const size_t take = std::min<size_t>(sram->size(), ChimeraArcadeSramSize());
+		memcpy(ChimeraArcadeSramBuffer(), sram->data(), take);
+		if (verbose)
+			fprintf(stderr, "chimera: the board's settings memory came from sram.bin (%zu bytes)\n", take);
+	}
+
+	if (verbose)
+		fprintf(stderr, "chimera: a NAMCO board (%s), %u MB of board RAM, game \"%s\"\n",
+			g_arcadeBoard == CHIMERA_ARCADE_246 ? "System 246"
+				: g_arcadeBoard == CHIMERA_ARCADE_256 ? "System 256" : "Super System 256",
+			ArcadeRamBytes() / (1024u * 1024u), id.c_str());
+	return nullptr;
+}
+
+/* The media, in the board's drive. It is NOT in the console's tray: a COH-H
+ * has no laser. A CD title is the exception - the fork hands those to CDVD as
+ * well, because the game asks the console for them too. */
+static const char* MountArcadeMedia(VMBootParameters& boot, bool verbose)
+{
+	char media[8] = "dvd";
+	wbx_setting_str("arcade_media", media, sizeof(media));
+	const char* kind = !strcmp(media, "cd") ? "CD" : !strcmp(media, "hdd") ? "HDD" : "DVD";
+
+	char name[512];
+	if (wbx_slot_count("arcademedia") <= 0
+		|| wbx_slot_name("arcademedia", 0, name, sizeof(name)) == nullptr)
+		return "this machine is a NAMCO board and the project has no game media in it";
+	if (!FileSystem::FileExists(name))
+		return "the game's media is not where the project said it was";
+
+	ACATA::SetEnv("", name, kind);
+	if (ACATA::TH::IO_OpenImage() != 0)
+		return ACATA::TH::open_error.empty()
+			? "the board's drive cannot read this image" : ACATA::TH::open_error.c_str();
+
+	boot.source_type = CDVD_SourceType::NoDisc;
+	if (!strcmp(kind, "CD"))
+	{
+		boot.filename = ACATA::imgpath;
+		boot.source_type = CDVD_SourceType::Iso;
+	}
+	if (verbose)
+		fprintf(stderr, "chimera: the board's drive holds \"%s\" (%s)\n", name, kind);
+	return nullptr;
+}
+#endif /* CHIMERA_ARCADE */
+
 /* what this core knows about one disc serial (waterbox/game-database.cpp) */
 void ChimeraGameDBProbe(const std::string_view serial);
 
@@ -850,6 +1164,8 @@ extern "C" {
 ECL_EXPORT const char* GetLoadError(void) { return g_loadError; }
 
 static void DecideFieldRate(bool verbose);
+
+
 
 ECL_EXPORT int Init(void)
 {
@@ -911,6 +1227,18 @@ ECL_EXPORT int Init(void)
 		EmuConfig.Cpu.Recompiler.EnableVU1 = recs;
 	}
 
+#ifdef CHIMERA_ARCADE
+	/* Which machine this project is. The board decides the EE and IOP clocks
+	 * and owns its own RAM, and both are read while the machine is being
+	 * built - so it is put together here, before CPUThreadInitialize, and not
+	 * after it. */
+	if (const char* failed = SetUpArcadeBoard(verbose))
+	{
+		snprintf(g_loadError, sizeof(g_loadError), "%s", failed);
+		return 0;
+	}
+#endif
+
 	if (!VMManager::Internal::CPUThreadInitialize())
 	{
 		snprintf(g_loadError, sizeof(g_loadError), "the machine would not initialise");
@@ -963,7 +1291,14 @@ ECL_EXPORT int Init(void)
 	 * because a project carrying someone's saved game under a name nothing
 	 * reads, booting to a blank card, is worse than one that will not boot. */
 	{
-		static const char* const kKnownSaves[] = { "memcard1.ps2", "memcard2.ps2", "bios.nvm" };
+		static const char* const kKnownSaves[] = { "memcard1.ps2", "memcard2.ps2", "bios.nvm",
+#ifdef CHIMERA_ARCADE
+			/* ...and the NAMCO board's settings memory, on the machines that
+			 * have one. A PlayStation 2 project carrying one is a project with
+			 * a file nothing will read, which is what this check is for. */
+			"sram.bin",
+#endif
+		};
 		char entry[512];
 		const int32_t saves = wbx_slot_count("savedata");
 		for (int32_t i = 0; i < saves; i++)
@@ -986,6 +1321,45 @@ ECL_EXPORT int Init(void)
 
 	VMBootParameters boot;
 	char name[512];
+#ifdef CHIMERA_ARCADE
+	if (chimera_arcade_present)
+	{
+		/* A COH-H board boots the program the dongle and the media carry, not
+		 * a disc's own boot file: the console's tray is empty and the game
+		 * arrives through the board's drive. */
+		if (const char* failed = MountArcadeMedia(boot, verbose))
+		{
+			snprintf(g_loadError, sizeof(g_loadError), "%s", failed);
+			return 0;
+		}
+		char elf[512];
+		if (wbx_slot_count("bootelf") > 0
+			&& wbx_slot_name("bootelf", 0, elf, sizeof(elf)) != nullptr
+			&& FileSystem::FileExists(elf))
+		{
+			boot.elf_override = elf;
+		}
+		else
+		{
+			snprintf(g_loadError, sizeof(g_loadError),
+				"this machine is a NAMCO board and the project has no boot program in it");
+			return 0;
+		}
+
+		Error arcadeError;
+		if (VMManager::Initialize(boot, &arcadeError) != VMBootResult::StartupSuccess)
+		{
+			snprintf(g_loadError, sizeof(g_loadError), "%s", arcadeError.GetDescription().c_str());
+			return 0;
+		}
+		DecideFieldRate(verbose);
+		if (!ResolveGunBinds(verbose))
+			return 0;
+		VMManager::SetState(VMState::Running);
+		g_loaded = true;
+		return 1;
+	}
+#endif
 	const char* file = "disc";
 	if (wbx_slot_count("disc") > 0 && wbx_slot_name("disc", 0, name, sizeof(name)) != nullptr)
 		file = name;
@@ -1045,6 +1419,14 @@ ECL_EXPORT int Init(void)
 
 ECL_EXPORT void SetButton(int index, int value)
 {
+#ifdef CHIMERA_ARCADE
+	if (chimera_arcade_present)
+	{
+		if (index >= 0 && index < ARCADE_BTN_COUNT)
+			g_arcadeButtons[index] = value ? 1 : 0;
+		return;
+	}
+#endif
 	if (index >= 0 && index < BTN_COUNT)
 		g_setButtons[index] = value ? 1 : 0;
 }
@@ -1106,6 +1488,13 @@ static bool WireLiveFor(SlotDevice device, int wire)
 
 ECL_EXPORT int IsButtonActive(int index)
 {
+#ifdef CHIMERA_ARCADE
+	/* Every switch on the panel is a switch the JVS board has a bit for, so
+	 * every one of them is live. Which of them a CABINET was built with is the
+	 * loom's business and the game's, not the declaration's. */
+	if (chimera_arcade_present)
+		return (index >= 0 && index < ARCADE_BTN_COUNT) ? 1 : 0;
+#endif
 	if (index < 0 || index >= BTN_COUNT) return 0;
 	for (int slot = 0; slot < PS2_SLOTS; slot++)
 	{
@@ -1118,6 +1507,10 @@ ECL_EXPORT int IsButtonActive(int index)
 
 ECL_EXPORT int IsAxisActive(int index)
 {
+#ifdef CHIMERA_ARCADE
+	if (chimera_arcade_present)
+		return (index >= 0 && index < ARCADE_AXIS_COUNT) ? 1 : 0;
+#endif
 	if (index < 0 || index >= AXIS_COUNT) return 0;
 	for (int slot = 0; slot < PS2_SLOTS; slot++)
 	{
@@ -1146,6 +1539,14 @@ ECL_EXPORT int IsAxisActive(int index)
 
 ECL_EXPORT void SetAxis(int index, int value)
 {
+#ifdef CHIMERA_ARCADE
+	if (chimera_arcade_present)
+	{
+		if (index >= 0 && index < ARCADE_AXIS_COUNT)
+			g_arcadeAxes[index] = static_cast<int16_t>(value);
+		return;
+	}
+#endif
 	if (index >= 0 && index < AXIS_COUNT)
 		g_axes[index] = static_cast<int16_t>(value);
 }
@@ -1405,10 +1806,22 @@ static int CollectSaveData(SaveData* out, int max)
 			out[count++] = {NVRAM_NAME, nvram, static_cast<int64_t>(size)};
 	}
 
+#ifdef CHIMERA_ARCADE
+	/* ...and what a CABINET remembers when it is switched off: 32KB of
+	 * battery-backed settings memory on the NAMCO board, where the coin
+	 * settings and the game's own test-menu options live. The fork keeps it in
+	 * a file beside the game; here it is save data, so a movie that starts
+	 * from a cabinet somebody set up is as reproducible as one that starts
+	 * from a blank board. */
+	if (chimera_arcade_present && count < max)
+		out[count++] = {ARCADE_SRAM_NAME, ChimeraArcadeSramBuffer(),
+			static_cast<int64_t>(ChimeraArcadeSramSize())};
+#endif
+
 	return count;
 }
 
-#define MAX_SAVEDATA (PS2_SLOTS + 1)
+#define MAX_SAVEDATA (PS2_SLOTS + 2)
 
 static int SaveDataAt(int32_t i, SaveData* item)
 {

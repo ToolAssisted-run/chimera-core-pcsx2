@@ -2,7 +2,7 @@
   "package": "pcsx2",
   "effectiveTerms": "GPL-3.0-or-later",
   "commercialUse": "allowed under the GPL",
-  "note": "The built core combines this repository's integration with PCSX2 and is distributed under the GPL-3.0-or-later, which is PCSX2's own licence and the strongest term in the package. Everything else it links is permissive or weaker copyleft and travels inside those terms: fmt, imgui, ccc, rapidjson, simpleini and fast_float are MIT-family; libchdr, xbyak, zlib, zstd and lz4 are BSD-family or zlib; the lzma SDK is public domain; SoundTouch is LGPL-2.1 and FreeSurround (with kiss_fft) is GPL-2.0-or-later, both of which the GPL-3 permits. No bios or disc is part of this package - a PlayStation 2 needs a dump the user supplies, and it never enters this repository.",
+  "note": "The built core combines this repository's integration with PCSX2 and is distributed under the GPL-3.0-or-later, which is PCSX2's own licence and the strongest term in the package. Everything else it links is permissive or weaker copyleft and travels inside those terms: fmt, imgui, ccc, rapidjson, simpleini and fast_float are MIT-family; libchdr, xbyak, zlib, zstd and lz4 are BSD-family or zlib; the lzma SDK is public domain; SoundTouch is LGPL-2.1 and FreeSurround (with kiss_fft) is GPL-2.0-or-later, both of which the GPL-3 permits. The NAMCO System 246/256 board (waterbox/arcade/) comes from the PCSX2x6 fork and is GPL-3.0-or-later like PCSX2 itself. No bios, dongle, disc or boot program is part of this package - a PlayStation 2 needs a dump the user supplies, and it never enters this repository.",
   "components": [
     {
       "name": "chimera-core-pcsx2 (integration)",
@@ -19,6 +19,14 @@
       "commit": "{submodule:extern/pcsx2}",
       "file": "extern/pcsx2/COPYING.GPLv3",
       "sourceUrl": "https://github.com/PCSX2/pcsx2/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "PCSX2x6 (the NAMCO System 246/256 board)",
+      "license": "GPL-3.0-or-later",
+      "url": "https://github.com/PS2Homebrew-arcade/pcsx2x6",
+      "file": "extern/pcsx2/COPYING.GPLv3",
+      "note": "The board under waterbox/arcade/ - the JVS I/O board, the ATA/ATAPI drive, the UART to a drive board, the settings SRAM and the board RAM - comes from the PCSX2x6 fork of PCSX2 and carries PCSX2's own licence, which this package already distributes under. Authors to credit: Matias Israelson (El_isra), Tovarichtch, DiscoStarslayer, uyjulian, krHACKen. Nothing new has to be cleared; it is named here because the code is a distinct upstream and should be findable as one. The licence text shipped for it is PCSX2's own COPYING.GPLv3, which is the same GPL-3.0-or-later text the fork carries.",
+      "sourceUrl": "https://github.com/PS2Homebrew-arcade/pcsx2x6/archive/refs/heads/master.tar.gz"
     },
     {
       "name": "fmt",

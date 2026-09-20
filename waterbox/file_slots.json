@@ -1,5 +1,5 @@
 {
-  "_comment": "The core-declared file form for chimera's project wizard: a PlayStation 2 project is one disc or one executable, and whatever the machine is to start with already written on its cards. The bios is not here - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "_comment": "The core-declared file form for chimera's project wizard. One core.wbx is four machines and the machine setting decides which slots are exposed: a PlayStation 2 project is one disc or one executable, and whatever the machine is to start with already written on its cards; a NAMCO System 246 or 256 project is a BUNDLE, because that is what an arcade game is - the security dongle that holds its boot software, the media its data is on, and the program that starts it. The bios is not here either way - it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
   "slots": [
     {
       "id": "disc",
@@ -16,7 +16,73 @@
         "gz",
         "elf"
       ],
-      "help": "What the machine runs. Usually a DVD or CD image: a plain .iso or .bin (2048- or 2352-byte sectors, with or without a .cue beside it), or a compressed one - .chd, .cso, .zso, .gz. It can also be a PS2 EXECUTABLE (.elf), which is what homebrew and test programs ship as: the tray stays empty and the machine is handed the program to run instead, exactly as it would run a disc's own boot file. What decides is the file's first four bytes, not its name, so an executable called anything still boots. A project with no file at all is a console sitting at its own browser, which is a machine worth booting - but the wizard asks for one, because a movie is usually of a game."
+      "help": "What the machine runs. Usually a DVD or CD image: a plain .iso or .bin (2048- or 2352-byte sectors, with or without a .cue beside it), or a compressed one - .chd, .cso, .zso, .gz. It can also be a PS2 EXECUTABLE (.elf), which is what homebrew and test programs ship as: the tray stays empty and the machine is handed the program to run instead, exactly as it would run a disc's own boot file. What decides is the file's first four bytes, not its name, so an executable called anything still boots. A project with no file at all is a console sitting at its own browser, which is a machine worth booting - but the wizard asks for one, because a movie is usually of a game.",
+      "exposedWhen": {
+        "setting": "machine",
+        "is": "ps2"
+      }
+    },
+    {
+      "id": "dongle",
+      "title": "Security dongle",
+      "min": 1,
+      "max": 1,
+      "formats": [
+        "ps2",
+        "bin",
+        "mcd",
+        "mc2"
+      ],
+      "help": "The game's security dongle, and the reason an arcade game boots at all. It is not a chip: it is a dump of the game's own COH-H10020 MEMORY CARD, 8,650,752 bytes of it (8 MB plus ECC, the size PCSX2 keeps a card at), and it holds the boot software the board runs. It is per title and cannot be substituted - another game's dongle boots nothing - and it usually arrives named after NAMCO's part number, or after the label on the cartridge, with whatever extension the dumper chose. The name does not matter: this slot takes the file as it comes and puts it in the board's card slot 1, where the cabinet has it. It is mounted read-only and pinned by hash, and the movie cites it; the boot software rewrites the dongle as it runs, and what this run wrote leaves through the save-data channel rather than going back into your copy.",
+      "exposedWhen": {
+        "setting": "machine",
+        "in": [
+          "system246",
+          "system256",
+          "system256super"
+        ]
+      }
+    },
+    {
+      "id": "arcademedia",
+      "title": "Game media",
+      "min": 1,
+      "max": 1,
+      "formats": [
+        "chd",
+        "iso",
+        "bin",
+        "img",
+        "cue"
+      ],
+      "help": "The game's own medium: the CD, the DVD or the hard disk its data is on, read by the NAMCO board's ATA/ATAPI controller rather than by the console's drive - a COH-H board has no laser. Which of the three it is comes from the Media setting, because the dump does not say. A .chd is the compressed form these are usually kept in; a plain .iso or .bin works too, and this core works out how the sectors are laid out in it (2048-byte cooked, 2352- or 2448-byte raw CD frames, 2336-byte Mode 2, 2064-byte raw DVD) rather than trusting the extension. A truncated dump is refused with a message saying so, because a game that reads past the end of one fails much later and much less clearly.",
+      "exposedWhen": {
+        "setting": "machine",
+        "in": [
+          "system246",
+          "system256",
+          "system256super"
+        ]
+      }
+    },
+    {
+      "id": "bootelf",
+      "title": "Boot program",
+      "min": 1,
+      "max": 1,
+      "formats": [
+        "elf",
+        "bin"
+      ],
+      "help": "The program the board starts. On a real cabinet this is Sony's PSALM boot.bin, off the board. It does not have to be dumped: Proverb (github.com/PS2Homebrew-arcade/proverb, AFL-3.0) is an open alternative that boots the same games, and it ships a pack with one boot.elf per NAMCO part number - bin/NM00004/boot.elf is Tekken 4's. Either will do here; whichever one a project names is part of the machine, so two projects on different boot programs are different machines and do not share movies.",
+      "exposedWhen": {
+        "setting": "machine",
+        "in": [
+          "system246",
+          "system256",
+          "system256super"
+        ]
+      }
     },
     {
       "id": "savedata",
@@ -25,9 +91,10 @@
       "max": 3,
       "formats": [
         "ps2",
-        "nvm"
+        "nvm",
+        "bin"
       ],
-      "help": "What the machine starts with already saved: memory cards, and the console's own NVRAM. These are the files Emulator > Export Save Data... writes, put back under the same names - memcard1.ps2, memcard2.ps2, bios.nvm - so a run can continue from where another left off. Each is mounted read-only and pinned by hash, and the movie cites it, so a movie that starts from a saved game is as reproducible as one that starts from a blank card. Leave it empty and the machine boots with blank cards, which is a new console."
+      "help": "What the machine starts with already saved. On a PlayStation 2 that is the memory cards and the console's own NVRAM - memcard1.ps2, memcard2.ps2, bios.nvm. On a NAMCO board it is sram.bin, the 32KB of battery-backed settings memory on the board itself, where the coin settings and the game's own test-menu options live. These are the files Emulator > Export Save Data... writes, put back under the same names, so a run can continue from where another left off - or from a cabinet somebody set up in the test menu. Each is mounted read-only and pinned by hash, and the movie cites it, so a movie that starts from a saved game is as reproducible as one that starts from a blank card. A file under a name nothing reads is refused at load, by name, rather than silently ignored. Leave it empty and the machine boots with blank cards and a board nobody has configured, which is a new console and a fresh cabinet."
     }
   ]
 }

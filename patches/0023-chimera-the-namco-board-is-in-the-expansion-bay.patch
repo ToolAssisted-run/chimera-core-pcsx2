@@ -1,0 +1,198 @@
+--- a/pcsx2/CDVD/CDVD.cpp
++++ b/pcsx2/CDVD/CDVD.cpp
+@@ -2,6 +2,10 @@
+ // SPDX-License-Identifier: GPL-3.0+
+ 
+ #include "CDVD/CDVD.h"
++#ifdef CHIMERA_ARCADE
++#include "chimera-arcade.h"
++#include <cstring>
++#endif
+ #include "CDVD/Ps1CD.h"
+ #include "CDVD/CDVD_internal.h"
+ #include "CDVD/IsoReader.h"
+@@ -35,7 +39,13 @@
+ 
+ cdvdStruct cdvd;
+ 
+-u32 PSXCLK = 36864000;
++#ifdef CHIMERA_ARCADE
++/* The System 256's regional signature, stated by the project. Empty means "use
++ * whatever the machine's own NVRAM carries", which is every other machine. */
++std::string ChimeraArcadeILinkID;
++#endif
++u32 PS2CLK = PS2CLK_DEFAULT;
++u32 PSXCLK = PS2CLK_DEFAULT / 8;	/* 36.864 MHz */
+ 
+ static constexpr s32 GMT9_OFFSET_SECONDS = 9 * 60 * 60; // 32400
+ 
+@@ -2630,6 +2640,26 @@
+ 					cdvd.SCMDResultBuff[7] = 0xB9;
+ 					cdvd.SCMDResultBuff[8] = 0x86;
+ 				}
++#ifdef CHIMERA_ARCADE
++				/* chimera: a System 256 reads its REGION out of this id, and
++				 * the Taiko Drum Master games are the ones that care. On a
++				 * cabinet it is in the board's own NVRAM; here the project
++				 * states it, because a project states its own machine. The
++				 * three signatures are the fork's. */
++				if (chimera_arcade_present && !ChimeraArcadeILinkID.empty())
++				{
++					static constexpr u8 kAsia4[8] = {0x32, 0x1F, 0xC7, 0xFA, 0xD6, 0xEE, 0xF0, 0x1C};
++					static constexpr u8 kAsia5[8] = {0x41, 0x46, 0x53, 0x2F, 0x1E, 0xFD, 0x0F, 0xE0};
++					static constexpr u8 kJapan[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
++					if (ChimeraArcadeILinkID == "ASIA4")
++						std::memcpy(&cdvd.SCMDResultBuff[1], kAsia4, 8);
++					else if (ChimeraArcadeILinkID == "ASIA5")
++						std::memcpy(&cdvd.SCMDResultBuff[1], kAsia5, 8);
++					else if (ChimeraArcadeILinkID == "JAPAN")
++						std::memcpy(&cdvd.SCMDResultBuff[1], kJapan, 8);
++					cdvd.SCMDResultBuff[0] = 0x00;
++				}
++#endif
+ 				break;
+ 
+ 			case 0x13: // sceCdWriteILinkID (8:1)
+--- a/pcsx2/Common.h
++++ b/pcsx2/Common.h
+@@ -6,8 +6,16 @@
+ #include "common/Pcsx2Defs.h"
+ 
+ static const u32 BIAS = 2;				// Bus is half of the actual ps2 speed
+-static const u32 PS2CLK = 294912000;	//Hz	/* 294.912 MHz */
+-extern u32 PSXCLK;	/* 36.864 MHz */
++// chimera: the EE bus clock is the MACHINE's rather than a constant. A
++// PlayStation 2 and a System 246 run at 294.912 MHz; a System 256 runs a third
++// faster and a Super 256 a half faster, which is the whole difference between
++// those two boards. Nothing else changes: every user of PS2CLK reads it the
++// same way, and a console project is set to the same number the constant was.
++static const u32 PS2CLK_DEFAULT = 294912000;	//Hz	/* 294.912 MHz - PS2 and System 246 */
++static const u32 PS2CLK_S256    = 393216000;	//Hz	/* 393.216 MHz - System 256 (x4/3) */
++static const u32 PS2CLK_SS256   = 442368000;	//Hz	/* 442.368 MHz - Super System 256 (x3/2) */
++extern u32 PS2CLK;
++extern u32 PSXCLK;	/* 36.864 MHz on a PS2; the EE clock over eight */
+ 
+ 
+ #include "Memory.h"
+--- a/pcsx2/Counters.cpp
++++ b/pcsx2/Counters.cpp
+@@ -202,7 +202,11 @@
+ 
+ static void vSyncInfoCalc(vSyncTimingInfo* info, double framesPerSecond, u32 scansPerFrame)
+ {
+-	constexpr double clock = static_cast<double>(PS2CLK);
++	/* chimera: the EE clock is the machine's now (Common.h), so this reads a
++	 * variable rather than a constant - a System 256 runs the bus a third
++	 * faster and its counters have to follow. A console project reaches the
++	 * same number the constant held. */
++	const double clock = static_cast<double>(PS2CLK);
+ 
+ 	const u64 Frame = clock * 10000ULL / framesPerSecond;
+ 	const u64 Scanline = Frame / scansPerFrame;
+--- a/pcsx2/IopMem.cpp
++++ b/pcsx2/IopMem.cpp
+@@ -8,6 +8,14 @@
+ #include "SPU2/spu2.h"
+ #include "DEV9/DEV9.h"
+ #include "IopHw.h"
++#ifdef CHIMERA_ARCADE
++/* chimera: a System 246 is this machine with a NAMCO board in the DEV9 bay,
++ * and the board answers on the IOP's bus. Everything it knows is behind this
++ * one header (waterbox/arcade/), so a pin bump moves these call sites rather
++ * than a fork's worth of files. chimera_arcade_present is 0 for a
++ * PlayStation 2 and the hooks then read nothing at all. */
++#include "chimera-arcade.h"
++#endif
+ 
+ uptr *psxMemWLUT = nullptr;
+ const uptr *psxMemRLUT = nullptr;
+@@ -99,6 +107,14 @@
+ {
+ 	mem &= 0x1fffffff;
+ 	u32 t = mem >> 16;
++#ifdef CHIMERA_ARCADE
++	if (chimera_arcade_present)
++	{
++		u8 arcade;
++		if (ChimeraArcadeRead8(mem, &arcade))
++			return arcade;
++	}
++#endif
+ 
+ 	if (t == 0x1f80)
+ 	{
+@@ -137,6 +153,14 @@
+ {
+ 	mem &= 0x1fffffff;
+ 	u32 t = mem >> 16;
++#ifdef CHIMERA_ARCADE
++	if (chimera_arcade_present)
++	{
++		u16 arcade;
++		if (ChimeraArcadeRead16(mem, &arcade))
++			return arcade;
++	}
++#endif
+ 
+ 	if (t == 0x1f80)
+ 	{
+@@ -261,6 +285,10 @@
+ {
+ 	mem &= 0x1fffffff;
+ 	u32 t = mem >> 16;
++#ifdef CHIMERA_ARCADE
++	if (chimera_arcade_present && ChimeraArcadeWrite8(mem, value))
++		return;
++#endif
+ 
+ 	if (t == 0x1f80)
+ 	{
+@@ -308,6 +336,10 @@
+ {
+ 	mem &= 0x1fffffff;
+ 	u32 t = mem >> 16;
++#ifdef CHIMERA_ARCADE
++	if (chimera_arcade_present && ChimeraArcadeWrite16(mem, value))
++		return;
++#endif
+ 
+ 	if (t == 0x1f80)
+ 	{
+@@ -381,6 +413,10 @@
+ {
+ 	mem &= 0x1fffffff;
+ 	u32 t = mem >> 16;
++#ifdef CHIMERA_ARCADE
++	if (chimera_arcade_present && ChimeraArcadeWrite32(mem, value))
++		return;
++#endif
+ 
+ 	if (t == 0x1f80)
+ 	{
+--- a/pcsx2/Memory.cpp
++++ b/pcsx2/Memory.cpp
+@@ -23,6 +23,9 @@
+ */
+ 
+ #include "DEV9/DEV9.h"
++#ifdef CHIMERA_ARCADE
++#include "chimera-arcade.h"
++#endif
+ #include "IopHw.h"
+ #include "GS/Renderers/Common/GSFunctionMap.h"
+ #include "GS.h"
+@@ -479,7 +482,14 @@
+ 
+ 	// Various ROMs (all read-only)
+ 	vtlb_MapBlock(eeMem->ROM,	0x1fc00000, Ps2MemSize::Rom);
++#ifdef CHIMERA_ARCADE
++	/* chimera: a COH-H board does not put rom1: where a console does -
++	 * rom0:ACDEV declares it at 0xB0000000 (ps2sdk iop/arcade/acdev). A
++	 * PlayStation 2 keeps the address it always had. */
++	vtlb_MapBlock(eeMem->ROM1,	chimera_arcade_present ? 0xB0000000 : 0x1e000000, Ps2MemSize::Rom1);
++#else
+ 	vtlb_MapBlock(eeMem->ROM1,	0x1e000000, Ps2MemSize::Rom1);
++#endif
+ 	vtlb_MapBlock(eeMem->ROM2,	0x1e400000, Ps2MemSize::Rom2);
+ 
+ 	// IOP memory
