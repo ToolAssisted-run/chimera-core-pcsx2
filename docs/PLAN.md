@@ -158,6 +158,88 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-09-21** A stored context id of ZERO was read as "nothing to rebuild",
+  and the frame-0 anchor is the one state that carries it (chimera issue #126).
+
+  Reported on Maximo: Ghosts to Glory, Hardware-OpenGL, a 5070 Ti: a short
+  tasproject replayed FROM THE BEGINNING draws a black screen with a sheared
+  band of garbage, every time, with or without clearing the greenzone and
+  across an emulator restart - and the reporter found the workaround
+  themselves: **play it from frame 2 instead of frame 0 or 1**. Loading a
+  branch state also clears it.
+
+  **Those frame numbers are the whole diagnosis.** TAStudio reaches a frame by
+  loading the state BEFORE it and emulating one frame forward, so that the
+  destination has a picture rather than only a machine
+  (`PriorStateForFramebuffer` is `States.Nearest(frame - 1)`). Frames 0 and 1
+  therefore both load the state at frame 0; frame 2 is the first that does not.
+  So whatever was wrong was wrong about the state at frame 0 and about nothing
+  else.
+
+  **What is wrong with it.** `ChimeraCheckGLContext` compares the context id
+  stored beside the renderer's GL objects with the one the calls are landing
+  on, and rebuilds the GS device when they differ. The stored id is a guest
+  static that starts at 0 and is first written at the top of a frame advance.
+  The greenzone's frame-0 anchor is taken right after Init and before any frame
+  advance - the one moment in a session at which a GS device already EXISTS and
+  the stored id is still 0 - and the guard `if (s_chimera_gl_context != 0)`
+  read that 0 as "this machine has never held any GL objects". It does not mean
+  that. It means "this state was taken before the core looked, so it cannot
+  vouch for the objects the device is holding now", and those objects were
+  whatever the frames after the anchor had left in the driver. The renderer
+  then drew from guest memory describing frame 0 into driver objects as of
+  frame N, for the rest of the run.
+
+  **Measured, not reasoned.** `chimera-run --gpu --greenzone 4096
+  --rewind-loop N,1` with `CHIMERA_GL_TRACE=1 CHIMERA_GL_STATEAUDIT=1`, on
+  Maximo and on padtest.elf, counting the bridge crossings on the frame after
+  the restore - a device rebuild is ~4500 calls, an idle frame of this program
+  is 1:
+
+  | restore to | before | after |
+  |---|---|---|
+  | frame 0 | **1 - no rebuild** | 4542 |
+  | frame 1 | 4542 | 4542 |
+  | frame 2 | 4542 | 4542 |
+  | a fresh boot, no load at all | 4428 at frame 1 (the device's own setup) | the same 4428, no extra rebuild |
+
+  **The fix keeps the host's word instead of guessing from the number.** The
+  engine tells every core when the machine's memory has been replaced
+  (`StateLoaded()`, an optional export this core did not have); the flag it
+  sets is written AFTER the load, so the load cannot wipe it, and a stored 0
+  seen after one is not trusted. A fresh boot has had no load and still does
+  not rebuild, which the table's last row is there to hold.
+
+  Two things were considered and rejected. Recording the id during `Init`
+  instead would put it in the SEALED baseline, where it is not a delta any
+  state carries - so a state made in one session would read the NEXT session's
+  id and the cross-session rebuild (chimera issue #43, the reason any of this
+  exists) would stop happening. And a non-zero "never seen" sentinel does not
+  help either: it is the static's initial value, so the frame-0 anchor carries
+  it just the same.
+
+  **The leg is `gl:rebuild-at-zero`**, on padtest.elf so that it needs a bios
+  and no disc: a restore to frame 0 and a restore to frame 2 must BOTH rebuild,
+  because it was the difference between them that was the bug. It was run
+  against the package built before the fix and FAILED there ("restoring the
+  frame-0 anchor made 1 GL calls on the next frame, against 4542 restoring
+  frame 2"), which is what makes it a test rather than a comment.
+
+  **What this does NOT establish.** The repair is proven by the rebuild
+  happening; the corrupt PICTURE was never reproduced here. On llvmpipe, with a
+  short run, a frame-0 restore and a straight run give byte-identical frames -
+  the audit says 0 objects deleted and 0 handed out again over 400 frames of
+  this game, so the hazard the rebuild exists for never materialised on this
+  box. The only evidence that the fix cures what the reporter saw is that it is
+  the one thing that differs between the frames they say are broken and the
+  frame they say is not. Nothing has been run on the reporter's hardware, and
+  no NVIDIA driver has been near this.
+
+  **Every other bridged core has the same hole.** Flycast's
+  `chimera_check_gl_context` is the same code to the line and is unfixed; xemu,
+  Dolphin, Ruffle and RPCS3 hold the same comparison and have not been checked.
+  Written up in chimera's docs/gpu-bridge.md, where the contract lives.
+
 - **2026-09-20** The NAMCO System 246 and 256 arcade boards (chimera issue
   #72). A System 246 is not another emulator: it is a Sony COH-H PlayStation 2
   with NAMCO's board bolted into the DEV9 expansion bay, so it belongs in this

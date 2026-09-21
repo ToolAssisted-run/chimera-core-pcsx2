@@ -966,6 +966,70 @@ else
 	fi
 fi
 
+# ---- every restore rebuilds, the frame-0 anchor included (chimera issue 126)
+#
+# On the GPU bridge, the renderer's objects live in the driver and a savestate
+# carries only their NAMES. So the engine mints a fresh context id on every
+# state load and this core rebuilds its GS device when the id it stored beside
+# those objects no longer matches (cinterface.cpp, ChimeraCheckGLContext).
+#
+# There was one state that slipped through: the greenzone's frame-0 anchor,
+# taken right after Init and before the first frame advance, which is the only
+# moment at which a GS device exists and the stored id is still its initial
+# zero. Loading it read that zero as "nothing to rebuild", the device kept the
+# objects the frames after the anchor had left behind, and the picture was
+# corrupt for the rest of the run - reported on Maximo: Ghosts to Glory, where
+# playing the movie from frame 0 or 1 is corrupt and from frame 2 is clean,
+# because TAStudio loads the state BEFORE the frame it is going for.
+#
+# What it measures: how many calls cross the bridge on the frame right after a
+# restore. Rebuilding the device is thousands (4542 here); an ordinary frame of
+# this program is one or two, so 500 is a wide margin rather than a tuned
+# threshold. Restoring frame 0 and restoring frame 2 must both rebuild - it is
+# the DIFFERENCE between them that was the bug, so both are asserted.
+#
+# WHAT THIS DOES NOT STAND IN FOR (docs/gates.md, E): padtest.elf is not a
+# game, llvmpipe is not a driver, and this leg proves the rebuild RUNS, not
+# that a real game's picture is right on real hardware. The screenshot in the
+# issue is the only evidence of the latter, and it is a user's.
+if [ -z "$chimera_root" ] || [ ! -x "$crun" ] || [ ! -f "$cpkg" ] || [ -z "$bios" ] || [ ! -f "$padelf" ]; then
+	report "gl:rebuild-at-zero" SKIP "needs chimera-run, a built pcsx2.chimeraCore, a bios and padtest.elf (set CHIMERA_ROOT)"
+else
+	gz="$work/glzero"
+	mkdir -p "$gz"
+	printf '[Input]\nLogKey:#\n' > "$gz/none.txt"
+	# a movie of its own: --rewind-loop needs frames to rewind through
+	"$crun" "$cpkg" "$padelf" "$gz/none.txt" --settings '{"renderer":"opengl-hw"}' \
+		--frames 40 --record "$gz/movie.txt" --firmware "bios.bin=$bios" \
+		> "$gz/record.log" 2>&1
+	# the GL calls in the frame that follows a restore to $1
+	restore_calls() {
+		CHIMERA_GL_TRACE=1 CHIMERA_GL_STATEAUDIT=1 "$crun" "$cpkg" "$padelf" \
+			"$gz/movie.txt" --settings '{"renderer":"opengl-hw"}' --frames 40 \
+			--firmware "bios.bin=$bios" --gpu --greenzone 4096 --rewind-loop "$1",1 \
+			> "$gz/rewind.$1.log" 2>&1
+		awk '/ce-gl-audit\] restore/ { seen = 1; next }
+		     seen && /^\[ce-gl\] frame/ { print $4; exit }' "$gz/rewind.$1.log"
+	}
+	if [ ! -s "$gz/movie.txt" ]; then
+		report "gl:rebuild-at-zero" FAIL "could not record a movie to rewind through (see $gz/record.log)"
+	else
+		zero="$(restore_calls 0)"
+		two="$(restore_calls 2)"
+		if grep -q "^chimera gl: no context" "$gz/rewind.0.log"; then
+			report "gl:rebuild-at-zero" SKIP "this build or this machine gives the bridge no GL context: $(sed -n 's/^chimera gl: no context //p' "$gz/rewind.0.log" | head -1)"
+		elif [ -z "$zero" ] || [ -z "$two" ]; then
+			report "gl:rebuild-at-zero" FAIL "no restore was traced (see $gz/rewind.0.log and $gz/rewind.2.log)"
+		elif [ "$zero" -lt 500 ]; then
+			report "gl:rebuild-at-zero" FAIL "restoring the frame-0 anchor made $zero GL calls on the next frame, against $two restoring frame 2: the device was not rebuilt"
+		elif [ "$two" -lt 500 ]; then
+			report "gl:rebuild-at-zero" FAIL "restoring frame 2 made only $two GL calls on the next frame: the device was not rebuilt"
+		else
+			report "gl:rebuild-at-zero" PASS "a restore rebuilds the GS device wherever it lands - $zero calls after frame 0, $two after frame 2"
+		fi
+	fi
+fi
+
 echo
 echo "$ok ok, $failed failed, $skipped skipped"
 [ "$failed" -eq 0 ]

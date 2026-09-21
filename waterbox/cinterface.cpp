@@ -1569,14 +1569,41 @@ extern "C" uint64_t chimera_gl_context_id(void);
  * it matches and this is a no-op. Safe here because the GS runs inline
  * (patch 0004), so this is the GL thread and outside any device method. */
 static uint64_t s_chimera_gl_context = 0;
+
+/* ZERO MEANT TWO THINGS, AND ONE OF THEM WAS A LIE (chimera issue 126).
+ *
+ * The static above starts at 0 and is first written by the check below, which
+ * runs at the top of a frame advance. So there is one state in every session
+ * that carries 0 while a GS DEVICE ALREADY EXISTS: the greenzone's frame-0
+ * anchor, taken right after Init and before the first frame ever ran. Loading
+ * it used to read that 0 as "this machine has never held any GL objects,
+ * nothing to rebuild" - when what it really means is "this state was taken
+ * before the core looked, so it cannot vouch for the objects the device is
+ * holding NOW". Those objects are whatever the frames after the anchor left
+ * behind: textures resized, render targets deleted and handed out again,
+ * framebuffers reattached. The renderer then drew from guest memory that
+ * describes frame 0 into driver objects that are as of frame N, and the
+ * picture was garbage for the rest of the run - reported on Maximo: Ghosts to
+ * Glory as a corrupt screen when the movie is played from frame 0 or 1 and a
+ * clean one from frame 2, which is exactly where TAStudio stops reaching for
+ * the anchor (it loads the state before the frame it is going to).
+ *
+ * So the host's word for it is kept instead of guessing from the number: the
+ * engine tells every core when the machine's memory has been replaced
+ * (StateLoaded), and after that the 0 cannot be trusted. Set AFTER the load,
+ * so the load itself cannot wipe the flag. */
+static bool s_chimera_gl_state_loaded = false;
+
 static void ChimeraCheckGLContext()
 {
 	if (!g_gs_device || g_gs_device->GetRenderAPI() != RenderAPI::OpenGL)
 		return;
+	const bool afterLoad = s_chimera_gl_state_loaded;
+	s_chimera_gl_state_loaded = false;
 	const uint64_t live = chimera_gl_context_id();
 	if (live == 0 || live == s_chimera_gl_context)
 		return;
-	if (s_chimera_gl_context != 0)
+	if (s_chimera_gl_context != 0 || afterLoad)
 	{
 		Console.WriteLn("chimera: GL objects came from context %llu, now %llu; rebuilding",
 			(unsigned long long)s_chimera_gl_context, (unsigned long long)live);
@@ -1586,6 +1613,17 @@ static void ChimeraCheckGLContext()
 	s_chimera_gl_context = live;
 }
 #endif
+
+/* Told after every load of the machine - a savestate, a branch file, a
+ * greenzone restore - with the machine stopped and before it runs again. The
+ * only thing this core keeps that a load invalidates is its claim about which
+ * GL context its objects came from; see above. */
+ECL_EXPORT void StateLoaded(void)
+{
+#ifdef CHIMERA_GUEST_GL
+	s_chimera_gl_state_loaded = true;
+#endif
+}
 
 ECL_EXPORT void FrameAdvance(uint64_t packed)
 {
