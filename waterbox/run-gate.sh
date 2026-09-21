@@ -929,6 +929,70 @@ else
 	fi
 fi
 
+# ---- texture filtering and FXAA: the picture, and only the picture ---------
+# textureFiltering and fxaa (chimera issue #122) are declared as settings that
+# change what PCSX2's OpenGL renderer draws and nothing whatever else in the
+# frames a disc here runs. This is where the claim is made good: the same disc,
+# the same frames, on the GPU bridge, at the default and at the other value -
+# all five memory domains, the audio and the lag count must come back byte for
+# byte identical, and the whole-run picture hash must NOT. A setting that was
+# quietly ignored passes the first half perfectly, so the second half insists
+# the renderer really did draw something else (watched red with the two
+# assignments in cinterface.cpp removed: every run drew the baseline).
+#
+# It wants a DISC, named by PCSX2_GFX_DISC, because the bios alone draws
+# nothing a filter can touch, and it wants enough frames to reach a textured
+# scene: on Maximo the filter first shows at 2400 (PCSX2_GFX_FRAMES). Without
+# the disc it SKIPs, which is what CI does; docs/PLAN.md records what it said
+# on the machine that had one (docs/gates.md, A). What it does NOT stand in for
+# (E): a game that reads its picture back, where the filter IS the machine -
+# no disc here did in the frames run, and the declaration says so.
+gfxdisc="${PCSX2_GFX_DISC:-}"
+if [ -z "$gfxdisc" ] || [ ! -f "$gfxdisc" ]; then
+	report "gpu:picture" SKIP "set PCSX2_GFX_DISC to a disc: would prove textureFiltering and fxaa change the picture and nothing else"
+elif [ -z "$bios" ]; then
+	report "gpu:picture" SKIP "needs a bios as well as PCSX2_GFX_DISC"
+else
+	gp="$work/gpu-picture"
+	mkdir -p "$gp"
+	cp "$bios" "$gp/bios.bin"
+	ln -s "$gfxdisc" "$gp/$(basename "$gfxdisc")" 2>/dev/null || cp "$gfxdisc" "$gp/"
+	printf '{"disc":["%s"]}' "$(basename "$gfxdisc")" > "$gp/slots"
+	gfxFrames=${PCSX2_GFX_FRAMES:-2400}
+	# <name> <settings json>: prints the whole-run picture hash, leaves the
+	# machine (everything but the picture) in $work/gp.<name>.machine
+	gpRun() {
+		printf '%s' "$2" > "$gp/settings"
+		CHIMERA_GPU=1 "$nat/run-wbx" "$gst/core.wbx" "$gp" --frames "$gfxFrames" \
+			2>"$work/gp.$1.err" > "$work/gp.$1.txt"
+		grep -E '^(frames|vsync|audioHash|lagFrames|domain\[)' "$work/gp.$1.txt" > "$work/gp.$1.machine"
+		sed -n 's/^videoHash=//p' "$work/gp.$1.txt"
+	}
+	gpBase="$(gpRun base '{"renderer":"opengl-hw"}')"
+	if grep -q '^gpu bridge: no context' "$work/gp.base.err"; then
+		report "gpu:picture" SKIP "this machine gives the bridge no GL context"
+	elif ! grep -q '^gpu bridge:' "$work/gp.base.err"; then
+		report "gpu:picture" SKIP "run-wbx was built without the bridge's host half"
+	elif [ -z "$gpBase" ] || ! grep -q "^frames=$gfxFrames\$" "$work/gp.base.txt"; then
+		report "gpu:picture" FAIL "the baseline run did not complete $gfxFrames frames: $(grep -v '^\s*$' "$work/gp.base.err" | tail -1 | cut -c1-100)"
+	else
+		gpBad=""
+		for v in 'nearest {"renderer":"opengl-hw","textureFiltering":"nearest"}' 'fxaa {"renderer":"opengl-hw","fxaa":true}'; do
+			name="${v%% *}"
+			hash="$(gpRun "$name" "${v#* }")"
+			cmp -s "$work/gp.base.machine" "$work/gp.$name.machine" \
+				|| gpBad="$gpBad $name changed the machine:$(diff "$work/gp.base.machine" "$work/gp.$name.machine" | tr '\n' ' ' | head -c 80);"
+			[ -n "$hash" ] && [ "$hash" != "$gpBase" ] \
+				|| gpBad="$gpBad $name drew the same picture as the default over $gfxFrames frames;"
+		done
+		if [ -z "$gpBad" ]; then
+			report "gpu:picture" PASS "$gfxFrames frames of $(basename "$gfxdisc"): one machine, three pictures (default, nearest, fxaa)"
+		else
+			report "gpu:picture" FAIL "$(printf '%s' "$gpBad" | head -c 200)"
+		fi
+	fi
+fi
+
 arcade_legs "s246"  "system246"      "${PCSX2_S246_ROMS:-}"  "${PCSX2_S246_GAME:-}"  "${PCSX2_S246_MEDIA:-}"  "${PCSX2_S246_RAM:-64}"
 arcade_legs "s256"  "system256"      "${PCSX2_S256_ROMS:-}"  "${PCSX2_S256_GAME:-}"  "${PCSX2_S256_MEDIA:-}"  "${PCSX2_S256_RAM:-0}"
 arcade_legs "ss256" "system256super" "${PCSX2_SS256_ROMS:-}" "${PCSX2_SS256_GAME:-}" "${PCSX2_SS256_MEDIA:-}" "${PCSX2_SS256_RAM:-0}"

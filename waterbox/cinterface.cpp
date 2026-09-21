@@ -828,6 +828,40 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		const int choice = SettingIndex("deinterlace", kNames, 8, 0);
 		si.SetIntValue("EmuCore/GS", "deinterlace_mode", static_cast<int>(kModes[choice]));
 	}
+
+	/* Texture filtering and FXAA (chimera issue #122): two of PCSX2's own
+	 * picture options, applied by PCSX2's own renderer, and both only under
+	 * the OpenGL renderers. The software rasteriser samples the way the GS
+	 * does and has no filter override; and the headless device it draws into
+	 * (waterbox/gs-device.cpp) has no shader stage, so DoFXAA there is a no-op
+	 * whose OUTPUT texture would replace the picture - measured: a black
+	 * frame - which is why fxaa is forced off unless the GL device is up.
+	 *
+	 * Classified by measurement, not by name (docs/PLAN.md, 2026-09-21).
+	 * Under opengl-hw, textureFiltering=nearest changes the whole-run picture
+	 * hash on Maximo (2400 and 6000 frames) and Gran Turismo 4 (900) and
+	 * leaves all five memory domains, the audio and the lag count identical;
+	 * fxaa=true does the same on Maximo, Gran Turismo 4 and Street Fighter
+	 * EX3. FXAA is applied to the merged picture after the PCRTC and nothing
+	 * reads that texture back, so it is post-processing in the strict sense.
+	 * The filter is not: it decides what lands in every render target, and
+	 * GSTextureCache::Read stretches a render target back into GSLocalMemory
+	 * when a game reads its picture, so a game that does so reads different
+	 * bytes. No disc here did in the frames run, and the declaration says
+	 * both things. A value reaches a core only as a project setting, so both
+	 * are pinned by the project and cited by the movie.
+	 *
+	 * Mipmapping, auto-flush and PCRTC anti-blur were wired the same way,
+	 * measured on the same discs, and changed nothing - not a pixel - over
+	 * up to 6000 frames, so they are not declared: a leg that cannot be seen
+	 * to fail is not a leg (docs/gates.md, B). They stay at PCSX2's defaults. */
+	{
+		static const char* const kFilter[] = { "machine", "nearest", "linear", "linearNoSprites" };
+		static const int kFilterModes[] = { 2, 0, 1, 3 }; /* BiFiltering: PS2, Nearest, Forced, Forced_But_Sprite */
+		si.SetIntValue("EmuCore/GS", "filter", kFilterModes[SettingIndex("textureFiltering", kFilter, 4, 0)]);
+		si.SetBoolValue("EmuCore/GS", "fxaa",
+			gsRenderer == GSRendererType::OGL && wbx_setting_bool("fxaa", 0) != 0);
+	}
 	si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowMessages", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowSpeed", false);

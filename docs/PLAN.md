@@ -158,6 +158,101 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-09-21** Nine graphics options, classified by measurement (chimera
+  issue #122): two declared, seven not, and the reason for each is a number.
+
+  The issue asked for PCSX2's Aspect Ratio, FMV Aspect Ratio Override,
+  Deinterlacing, Bilinear Filtering, Anti-Blur, Texture Filtering, Mipmapping,
+  Auto-Flush and FXAA. Sergio's rule: a post-processing option (one that
+  cannot change a byte of the machine) belongs to the frontend's display
+  settings; an option internal to the core becomes a core setting, applied by
+  the core's own implementation. The sorting was done by running each option
+  at two values and comparing every memory domain, the audio, the lag count
+  and the whole-run picture hash. Every option was wired to PCSX2's own key
+  for the measurement (`AspectRatio`, `FMVAspectRatioSwitch`,
+  `linear_present_mode`, `pcrtc_antiblur`, `fxaa`, `filter`, `hw_mipmap`,
+  `UserHacks` + `UserHacks_AutoFlushLevel`); the instrument was run against
+  itself first (two identical runs, every flavour, every disc: byte-equal).
+
+  Software renderer, native, Maximo, 300 frames (five domains, audio, lag,
+  picture): nothing changed anything except `deinterlace=off` (picture only,
+  as it always has) and `fxaa=true`, which produced a BLACK frame - the
+  headless device has no shader stage, `DoFXAA` is a no-op, and `GSDevice::
+  FXAA` then presents the untouched output texture. That is why fxaa is
+  forced off unless the GL device is up. `pcrtc_antiblur=false` was then
+  run natively over 900 frames of all five discs on hand (Gran Turismo 4,
+  Street Fighter EX3, Time Crisis II, Marvel vs. Capcom 2, Maximo): identical
+  in every line.
+
+  GPU bridge (`opengl-hw`, llvmpipe on this box), sandbox:
+
+  | disc | frames | filter=nearest | hw_mipmap=off | autoflush=all | antiblur=off | fxaa=on |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | Maximo | 300 | = | = | = | = | picture |
+  | Street Fighter EX3 | 600 | = | = | = | = | picture |
+  | Gran Turismo 4 | 900 | picture | = | = | = | picture |
+  | Time Crisis II | 2400 | = | = | = | = | - |
+  | Maximo | 2400 | picture | = | = | = | picture |
+  | Gran Turismo 4, Start pressed at 400/1500/2500 | 3000 | picture | = | = | = | - |
+  | Maximo | 6000 | picture | = | = | = | - |
+
+  "picture" means the whole-run video hash and the last frame's differ and
+  EE RAM, IOP RAM, the scratchpad, VU0, VU1, the audio and the lag count are
+  byte-identical; "=" means every line identical, picture included.
+  Aspect ratio (16:9, stretch), the FMV switch (16:9) and bilinear
+  presentation (smooth, sharp) were identical under both renderers too.
+
+  What that decided:
+
+  - **Aspect Ratio, FMV Aspect Ratio Override, Bilinear Filtering: inert in
+    this core, by construction and by measurement.** All three act in
+    PCSX2's present pass (`GSRenderer::PresentCurrentFrame`,
+    `GetCurrentAspectRatioFloat`, `LinearPresent`), and this core does not
+    present: `ChimeraGSGetFrame` hands over the merged texture and the
+    frontend draws it. The frontend's Display configuration already has an
+    aspect-ratio selection (system, custom size, custom ratio, 1:1) and a
+    final filter (none, bilinear), which is where these two belong under the
+    rule and where they already are. The FMV switch has no frontend
+    equivalent - nothing outside the core knows when an FMV plays - and is
+    not offered.
+  - **Deinterlacing: already declared (issue #7), and now measured to be
+    picture-only under both renderers.** Unchanged.
+  - **Texture Filtering: declared, `textureFiltering` (machine / nearest /
+    linear / linearNoSprites).** Changes the picture on Maximo and Gran
+    Turismo 4, never a byte of memory in the frames run. It is not
+    post-processing all the same: it decides what lands in every render
+    target, and `GSTextureCache::Read` writes a render target back into
+    `GSLocalMemory` when a game reads its own picture, so on such a game the
+    bytes read depend on it. The declaration says both, and that a movie
+    needs the same value to play back.
+  - **FXAA: declared, `fxaa` (bool), GL renderers only.** Applied to the
+    merged picture after the PCRTC; nothing reads that texture back, so it
+    is post-processing in the strict sense and cannot desync. It is a core
+    setting rather than a frontend filter because it is PCSX2's own shader
+    and the frontend has no shader stage to run one in (its display filter
+    chain is a letterbox and a bilinear switch), and because a value reaches
+    a core only as a declared setting. Its description says a movie made
+    with it plays back without it.
+  - **Mipmapping, Auto-Flush, Anti-Blur: not declared.** Not one pixel
+    changed on any disc up to 6000 frames. A setting nobody can see change
+    anything is one no leg could hold red (docs/gates.md, B), and a setting
+    with no leg is a promise with nothing behind it. They stay at PCSX2's
+    defaults (hardware mipmapping ON, auto-flush OFF, anti-blur ON). When a
+    disc turns up on which one of them moves the picture, it is two lines
+    in cinterface.cpp and a column in the `gpu:picture` leg.
+
+  The leg: `gpu:picture` runs `PCSX2_GFX_DISC` on the bridge at the default,
+  at `textureFiltering=nearest` and at `fxaa=true` (`PCSX2_GFX_FRAMES`, 2400,
+  where Maximo first shows the filter) and requires the machine identical and
+  three different pictures. SKIPs without the disc (CI). Negative control:
+  with the two assignments removed from cinterface.cpp, all three runs drew
+  the baseline hash. What it does not stand in for: a game that reads its
+  picture back, where the filter is the machine.
+
+  Also from this round: `MAX_WIDTH`/`MAX_HEIGHT` still crop at 1280x1024, so
+  an internal-resolution setting for this core is still the decision recorded
+  in chimera's docs/graphics-settings.md, not a patch.
+
 - **2026-09-21** The gate's own GL host had no case for the context id, and
   the gate had never run that host at all.
 
