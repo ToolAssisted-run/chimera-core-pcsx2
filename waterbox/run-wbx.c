@@ -54,7 +54,36 @@ static mb_host *g_host;
 int chimera_gl_host_init(char *err, int errlen);
 const char *chimera_gl_host_description(void);
 uintptr_t chimera_gl_host_dispatch(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+void chimera_gl_host_state_loaded(void);
+unsigned long chimera_gl_host_unhandled(long *last_op);
 typedef void (*setfn_v)(uint64_t);
+
+/* What chimera's session does after a load (ce_gl_state_loaded), said here so
+ * this runner asks the renderer the same question the frontend does. Without
+ * it a load in this runner is a strictly EASIER test than a load in Chimera,
+ * and the gate would be standing behind the easier one. */
+static void gl_state_loaded(void)
+{
+	chimera_gl_host_state_loaded();
+}
+
+/* Every call the bridge shrugged at. Zero is a plausible answer to nearly
+ * every opcode, so a run nobody answered looks exactly like a run that was
+ * answered - which is how GL_OP_CONTEXT_ID went unanswered here for as long as
+ * the opcode existed. Said out loud so the gate can fail on it instead of the
+ * log saying it to nobody. */
+static void gl_report_unhandled(void)
+{
+	long last = 0;
+	const unsigned long n = chimera_gl_host_unhandled(&last);
+	if (n == 0) return;
+	fprintf(stderr, "gpu bridge: %lu call(s) to opcodes this host has no case for"
+		" (last: opcode %ld); every one was answered 0\n", n, last);
+	fflush(stderr);
+}
+#else
+static void gl_state_loaded(void) { }
+static void gl_report_unhandled(void) { }
 #endif
 
 static intfn g_Init;
@@ -128,6 +157,7 @@ static void core_pre_frame(void)
 	g_state.pos = 0;
 	wbx_load_state(g_host, mem_read, (uintptr_t)&g_state, &r);
 	if (r.error_message[0]) { fprintf(stderr, "load_state: %s\n", r.error_message); exit(1); }
+	gl_state_loaded();
 }
 
 int main(int argc, char **argv)
@@ -293,6 +323,7 @@ int main(int argc, char **argv)
 
 	c.init = core_init_done;
 	int ret = gate_run(&c, &o);
+	gl_report_unhandled();
 
 	wbx_deactivate_host(g_host, &r);
 	wbx_destroy_host(g_host, &r);

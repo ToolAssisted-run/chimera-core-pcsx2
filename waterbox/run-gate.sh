@@ -50,6 +50,31 @@ digests() { grep -E '^(frames|vsync|videoHash|audioHash|lagFrames|domain\[)'; }
 # half it did draw is compared instead.
 turboDigests() { grep -E '^(frames|vsync|tailVideoHash|audioHash|lagFrames|domain\[)'; }
 
+# bridge_answered FILE...: did the GPU bridge have a case for every opcode the
+# guest sent it? gl-host.c's default arm logs and returns 0, and 0 is a
+# perfectly plausible answer to nearly every question the bridge carries - so a
+# guest that was answered and a guest that was shrugged at look the same, and
+# two flavours that were both shrugged at compare EQUAL.
+#
+# That is not a worry, it is a measurement: GL_OP_CONTEXT_ID (chimera issue
+# #43, the opcode that lets the renderer notice its GL objects belong to a
+# context that is gone) had no case in gl-host.c for as long as the opcode
+# existed, and this gate was green over it. Absent was indistinguishable from
+# working (~/chimera/docs/gates.md, mode C). So no gpu leg may go green over
+# that line: every one runs this first, on each flavour's stderr that went
+# through gl-host.c, and the message names the opcodes.
+bridge_gap=""
+bridge_answered() {
+	bridge_gap=""
+	for f in "$@"; do
+		[ -f "$f" ] || continue
+		grep -q 'has no case' "$f" || continue
+		bridge_gap="the GPU bridge had no case for $(grep -o 'opcode [0-9]*' "$f" | sort -u | tr '\n' ',' | sed 's/,$//; s/,/, /g') and answered 0 ($(basename "$f"))"
+		return 1
+	done
+	return 0
+}
+
 ok=0
 failed=0
 skipped=0
@@ -963,6 +988,53 @@ else
 		report "ports:columns" PASS "a movie carries the controls the machine has, and no others"
 	else
 		report "ports:columns" FAIL "${wrong#; }"
+	fi
+fi
+
+# ---- the GPU bridge, through this core's OWN runner ------------------------
+#
+# run-wbx carries the host half of the GPU bridge (waterbox/gl-host.c) when it
+# is built with -Dgl_bridge=true, and hands it to core.wbx under CHIMERA_GPU=1;
+# the renderer draws through it when the project says "opengl-hw". Nothing in
+# this script ever ran that dispatcher before this leg: the one leg that drives
+# a GPU (gl:rebuild-at-zero, below) goes through chimera-run and the ENGINE's
+# host half. So a case missing from gl-host.c was invisible here -
+# GL_OP_CONTEXT_ID (chimera issue #43) had none for as long as the opcode
+# existed, the default arm answered 0, which is the contract's "cannot tell",
+# and ChimeraCheckGLContext kept a dead session's object names, once per
+# frame, in the runner whose purpose is to stand in for the frontend
+# (~/chimera/docs/gates.md, mode C).
+#
+# This leg runs padtest.elf through run-wbx with the bridge up and holds the
+# dispatcher to having answered every opcode the guest sent. It does NOT
+# compare pictures: this runner has no native GL flavour to compare against
+# (run-native draws with the softpipe), and llvmpipe is not a driver. What it
+# SKIPs for it names - a run-wbx built without the host half, a machine with no
+# GL context, a core.wbx built without the guest wrappers.
+gb="$work/gpu-bridge"
+if [ -z "$bios" ] || [ ! -f "$padelf" ]; then
+	report "gpu:bridge" SKIP "needs a bios and padtest.elf"
+else
+	mkdir -p "$gb"
+	cp "$bios" "$gb/bios.bin"
+	cp "$padelf" "$gb/padtest.elf"
+	printf '{"disc":["padtest.elf"]}' > "$gb/slots"
+	printf '{"renderer":"opengl-hw"}' > "$gb/settings"
+	CHIMERA_GPU=1 "$nat/run-wbx" "$gst/core.wbx" "$gb" --frames 60 2>"$work/gbridge.err" | digests > "$work/gbridge.txt"
+	if ! grep -q '^gpu bridge:' "$work/gbridge.err"; then
+		report "gpu:bridge" SKIP "run-wbx was built without the bridge's host half (meson configure -Dgl_bridge=true)"
+	elif grep -q '^gpu bridge: no context' "$work/gbridge.err"; then
+		report "gpu:bridge" SKIP "this machine gives the bridge no GL context: $(grep -m1 '^gpu bridge: no context' "$work/gbridge.err" | cut -c1-80)"
+	elif grep -q 'could not register the callback' "$work/gbridge.err"; then
+		report "gpu:bridge" SKIP "core.wbx has no SetGpuBridge - built without a guest Mesa, so without the GL renderer"
+	elif grep -q 'offered and refused' "$work/gbridge.err"; then
+		report "gpu:bridge" FAIL "the core refused the bridge run-wbx offered: $(grep -m1 'offered and refused' "$work/gbridge.err")"
+	elif ! bridge_answered "$work/gbridge.err"; then
+		report "gpu:bridge" FAIL "$bridge_gap"
+	elif ! grep -q '^frames=60$' "$work/gbridge.txt"; then
+		report "gpu:bridge" FAIL "the run did not complete 60 frames: $(grep -v '^\s*$' "$work/gbridge.err" | tail -1 | cut -c1-100)"
+	else
+		report "gpu:bridge" PASS "60 frames of padtest.elf on $(grep -m1 '^gpu bridge: [0-9]' "$work/gbridge.err" | sed 's/gpu bridge: //' | cut -c1-50), every opcode the guest sent had a case"
 	fi
 fi
 

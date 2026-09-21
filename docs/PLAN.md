@@ -158,6 +158,73 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-09-21** The gate's own GL host had no case for the context id, and
+  the gate had never run that host at all.
+
+  Found on rpcs3 (its b1b88fe) and checked here the same morning.
+  `waterbox/gl-host.c` is the host half of the GPU bridge that `run-wbx`
+  hands `core.wbx` under `CHIMERA_GPU=1` when it is built with
+  `-Dgl_bridge=true`. It had no case for `GL_OP_CONTEXT_ID`, the opcode that
+  exists so `ChimeraCheckGLContext` can tell that the GL names it holds belong
+  to a context that is gone (chimera issue #43), for as long as the opcode
+  has existed. The default arm printed `opcode 4 has no case` and returned 0,
+  and 0 is the contract's "cannot tell": the renderer concluded nothing had
+  moved and kept the names. Chimera's real host (gl_bridge.cpp) answers the
+  opcode, so the frontend was never affected - and neither was the
+  `gl:rebuild-at-zero` leg or the #126 measurements, which go through
+  chimera-run and that host. Only this repository's own harness had it.
+
+  **And nothing here ever ran that harness.** `run-gate.sh` had no leg that
+  put the GPU bridge up through run-wbx: every run-wbx leg draws with the
+  softpipe, and the local build did not even compile the host half
+  (`gl_bridge` defaults to false; the run-wbx in build/meson-native was 28 KB
+  and printed nothing about a bridge). So the gap could not have been counted
+  by anything. Measured once the host half was built, before the fix: 60
+  frames of padtest.elf through run-wbx with `"renderer":"opengl-hw"` printed
+  the line 60 times - once per advance - and with the case present the run's
+  digests (video, audio, every domain) are byte-identical to the run without
+  it. Nothing was lost from the command stream, only the answer to the one
+  question that makes a restore safe. Absent was indistinguishable from
+  working (chimera docs/gates.md, mode C).
+
+  **The fix is rpcs3's, all three parts.** The case answers an id minted the
+  way the engine mints it (pid and a high-resolution counter carry the
+  per-process entropy; `time()` alone would hand two runs in the same second
+  the SAME id); the host mints again on every state load through
+  `chimera_gl_host_state_loaded`, which run-wbx calls after its `--rerecord`
+  load, because chimera's host does (`ce_gl_state_loaded`; this core declares
+  no `video.rebuildOnStateLoad`, so it rebuilds). The default arm COUNTS as
+  well as logs, caps its own chatter at eight lines, and
+  `chimera_gl_host_unhandled` hands the count to run-wbx, which prints it at
+  the end. And `bridge_answered` in run-gate.sh fails a gpu leg when its
+  stderr carries the line.
+
+  **The leg it fails is new, because there was none: `gpu:bridge`.** It runs
+  60 frames of padtest.elf through run-wbx with the bridge up and holds the
+  dispatcher to having answered every opcode the guest sent. It compares no
+  pictures - this runner has no native GL flavour (run-native draws with the
+  softpipe) and llvmpipe is not a driver - and it SKIPs by name for a run-wbx
+  built without the host half, a machine with no GL context, or a core.wbx
+  built without a guest Mesa. The local build directory now has
+  `-Dgl_bridge=true` configured so the leg runs here; a checkout that does
+  not will see the SKIP and what to do about it.
+
+  **Proved by breaking it.** With the case label changed to a number nothing
+  sends and run-wbx relinked, the full gate said:
+
+      gpu:bridge                   FAIL   the GPU bridge had no case for opcode 4 and answered 0 (gbridge.err)
+
+  With the case back: `gpu:bridge PASS 60 frames of padtest.elf on 4.5
+  (Compatibility Profile) Mesa 25.2.8 ... llvmpipe, every opcode the guest
+  sent had a case`. Gate at the commit: 29 ok, 0 failed, 6 skipped (the six need
+  discs, a GunCon disc or the NAMCO rom folders); the negative control was
+  28 ok, 1 failed, 6 skipped, the one failure being the leg under test.
+
+  **What this does not establish** (gates.md, E): padtest.elf on llvmpipe is
+  neither a game nor a driver, and this leg does not look at the picture at
+  all. It proves the dispatcher the harness hands a guest answers every
+  opcode the guest sends - which, until today, nothing did.
+
 - **2026-09-21** A stored context id of ZERO was read as "nothing to rebuild",
   and the frame-0 anchor is the one state that carries it (chimera issue #126).
 
