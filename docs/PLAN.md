@@ -235,6 +235,25 @@ pad driver - and the count stops growing the moment it has.
   frame they say is not. Nothing has been run on the reporter's hardware, and
   no NVIDIA driver has been near this.
 
+  **Ruled out along the way, each by measurement rather than by reading.**
+  - *The engine's seek path.* At engine level there is no difference at all
+    between playing from frame 0 and replaying to the same frame after a seek
+    to 2: `--frames 900` and `--frames 900 --rewind-loop 2,1` produce
+    byte-identical final frames, and `video.drawEveryFrame` is already doing
+    its job (a seek replays with the readback off and the drawing on).
+  - *A warm-up or a lost paint.* Not this: the damage survives an arbitrary
+    number of drawn frames after the start, which is the opposite of a picture
+    painted once and skipped.
+  - *The greenzone.* The reporter cleared it and the corruption stayed, and a
+    GPU-drawn project writes no states across processes anyway, so the
+    reopened session replays rather than restoring anything older.
+  - *A cross-session state.* The corruption survives an emulator restart,
+    which is a cold session with nothing carried in.
+  - *`renderer` itself.* Nothing about the fresh boot's first frames differs
+    between a run that later loads the anchor and one that does not: a fresh
+    boot makes the same 4428 bridge crossings at frame 1 before and after this
+    change.
+
   **Every other bridged core has the same hole.** Flycast's
   `chimera_check_gl_context` is the same code to the line and is unfixed; xemu,
   Dolphin, Ruffle and RPCS3 hold the same comparison and have not been checked.
