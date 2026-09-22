@@ -114,6 +114,18 @@ printf "%-28s %-6s %s\n" "-----" "------" "------"
 #
 # Without the folder the legs are SKIPPED, which is what CI does; docs/PLAN.md
 # records what they said on the machine that had the content.
+# ---- keybinds ------------------------------------------------------------
+# Every declared control has a key on it out of the box. chimera#132: the
+# arcade panel declared all 47 lines of a JVS loom and left 21 with no default
+# binding, so a twin-stick or drum game looked like a game whose controls did
+# not work. Nothing could catch that - the controls were declared, the core
+# read them, and a default is not a behaviour a digest can see.
+if out="$(python3 "$here/check-keybinds.py" "$here/default_keybinds.json" 2>&1)"; then
+	report "keybinds" PASS "$out"
+else
+	report "keybinds" FAIL "$out"
+fi
+
 arcade_legs() {
 	local tag="$1" machine="$2" dir="$3" gameid="$4" media="$5" ram="$6"
 	if [ -z "$dir" ] || [ ! -f "$dir/bios.bin" ] || [ ! -f "$dir/boot.elf" ]; then
