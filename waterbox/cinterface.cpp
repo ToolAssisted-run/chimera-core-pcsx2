@@ -739,6 +739,20 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU0", recs);
 		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU1", recs);
 	}
+	/* A System 256's kernel puts the main thread's stack at the top of 64MB
+	 * of EE RAM. With the console's 32MB that
+	 * stack is not there: the first return address read back from it is
+	 * zero, and the boot program jumps to nothing (issue #136). PCSX2's
+	 * extra memory is the only larger EE it has, and the fork this board
+	 * comes from turns it on for every arcade game. Only the 256 boards get
+	 * it here: a System 246 boots in 32MB, and its movies were made there. */
+#ifdef CHIMERA_ARCADE
+	{
+		const int board = ArcadeBoardFromSettings();
+		si.SetBoolValue("EmuCore/CPU", "ExtraMemory",
+			board == CHIMERA_ARCADE_256 || board == CHIMERA_ARCADE_SUPER256);
+	}
+#endif
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEECache", false);
 	si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableFastmem", false);
 

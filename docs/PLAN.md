@@ -499,9 +499,10 @@ pad driver - and the count stops growing the moment it has.
   channel as `sram.bin`, like a memory card.
 
   **What is NOT proven, and must not be claimed:**
-  - **System 256 and Super System 256 have never been run.** The machines are
-    declared, the clock is wired and the gate legs exist, and no System 256
-    content has been near this machine. They are unproven.
+  - **Super System 256 has never been run, and System 256 has run one game.**
+    Super Dragon Ball Z (NM00027) reaches its notice screen since 2026-09-23
+    (chimera#136, below); nothing on it has been played, and no Super 256
+    content has been near this machine.
   - **Only ONE game has ever booted.** The per-game JVS wiring covers 55
     titles and 54 of them are untested. The racing, drum, twin-stick, touch
     and light-gun panels have never had a game read them; only the coin and
@@ -810,6 +811,21 @@ straight to the browser. Guest and native produce the same kilobyte.
   is left out; a movie that wants half-pressed buttons has no way to ask yet.
 
 ## Sharp edges hit
+
+- **A System 256 needs more than 32MB of EE RAM** (2026-09-23, chimera#136).
+  Every 256 game died at a black screen, one of them with PCSX2's `FQC = 0 on
+  VIF FIFO READ` assert. The boot program (proverb) calls SetupThread with a
+  stack of -1, and this bios's kernel answers with a stack at the top of 64MB -
+  0x03ffecc0 - on an EE that had 32. The first return address read back from
+  that stack is zero, the program jumps to address 0, and what follows is
+  noise: the recompiler wanders into the kernel's argument copier with an
+  address for a count and strcats 7MB of memory until it reads the VIF FIFO;
+  the interpreter spins in the kernel instead. Both were symptoms. The fork
+  turns PCSX2's extra memory on for every arcade game; this core turns it on
+  for the two 256 boards only, because a System 246 boots in 32MB and its
+  movies were made there. What found it was a syscall trace (nothing between
+  SetupHeap and the crash) and then the first user-to-kernel transition after
+  it, which showed a jump from 0 with the stack pointer above 32MB.
 
 - **A light gun is not answered by pointing it** (2026-09-20, chimera#71). With
   Time Crisis II on the disc, aiming at the target and pulling the trigger
