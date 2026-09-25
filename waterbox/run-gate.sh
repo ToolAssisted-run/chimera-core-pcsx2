@@ -126,6 +126,19 @@ else
 	report "keybinds" FAIL "$out"
 fi
 
+# ---- the arcade panel's switch words ------------------------------------------
+# chimera#146: the twin-stick lines were applied after the standard ones and
+# cleared every bit they share - player 1's down, left, right and buttons 1 to
+# 6 - on every frame, so Time Crisis 4 (trigger = P1 Left) could never fire.
+# No machine needed: tests/own/test-arcade-panel.cpp holds the words, and
+# carries its own negative control.
+if g++ -std=c++17 -I"$here" -o "$work/test-arcade-panel" "$root/tests/own/test-arcade-panel.cpp" 2>"$work/tap.log" \
+	&& out="$("$work/test-arcade-panel" 2>&1)"; then
+	report "arcade:panel-words" PASS "every standard line reaches its bit whatever the twin sticks hold ($out)"
+else
+	report "arcade:panel-words" FAIL "$(cat "$work/tap.log") $out"
+fi
+
 arcade_legs() {
 	local tag="$1" machine="$2" dir="$3" gameid="$4" media="$5" ram="$6"
 	if [ -z "$dir" ] || [ ! -f "$dir/bios.bin" ] || [ ! -f "$dir/boot.elf" ]; then

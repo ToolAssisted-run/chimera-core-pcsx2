@@ -594,24 +594,17 @@ enum
 	ARCADE_AXIS_COUNT,
 };
 
-/* The JVS switch-word bit each panel button is: the board's own wiring, from
- * waterbox/arcade/ACJV.h. Twelve per player, and the same twelve for both. */
-static const u16 kArcadePlayerBits[12] = {
-	JVS_BTN_UP, JVS_BTN_DOWN, JVS_BTN_LEFT, JVS_BTN_RIGHT,
-	JVS_BTN_1, JVS_BTN_2, JVS_BTN_3, JVS_BTN_4, JVS_BTN_5, JVS_BTN_6,
-	JVS_BTN_START, JVS_BTN_SERVICE,
-};
+/* The switch words the standard and twin-stick lines make: see
+ * waterbox/arcade-panel.h for why they are computed together. */
+#include "arcade-panel.h"
+static_assert(arcade_panel::kPlayerBits[0] == JVS_BTN_UP && arcade_panel::kPlayerBits[2] == JVS_BTN_LEFT
+	&& arcade_panel::kPlayerBits[4] == JVS_BTN_1 && arcade_panel::kPlayerBits[6] == JVS_BTN_3
+	&& arcade_panel::kPlayerBits[9] == JVS_BTN_6 && arcade_panel::kPlayerBits[10] == JVS_BTN_START
+	&& arcade_panel::kPlayerBits[11] == JVS_BTN_SERVICE, "arcade-panel.h is the board's wiring");
 /* Taiko's eight piezo sensors, in the order the panel declares them (P1 Don
  * left/right, P1 Ka left/right, then P2's) against the channel each one
  * MEASURED as in the game's own TAIKO TEST - which is scrambled. */
 static const u32 kArcadeDrumChannel[8] = {0, 3, 5, 4, 2, 7, 1, 6};
-/* Zoids' twin levers, triggers and buttons: switch-word bits of their own. */
-static const u16 kArcadeTwinBits[12] = {
-	0x0001, 0x8000, 0x4000, 0x2000,   /* left lever  up, down, left, right */
-	0x0010, 0x0008, 0x0004, 0x0002,   /* right lever up, down, left, right */
-	0x0400, 0x1000,                   /* left and right trigger */
-	0x0200, 0x0800,                   /* left and right button  */
-};
 
 static uint8_t g_arcadeButtons[ARCADE_BTN_COUNT];
 static int16_t g_arcadeAxes[ARCADE_AXIS_COUNT];
@@ -626,10 +619,13 @@ static float ArcadeUnit(int index) /* an axis as 0..1 */
  * when the game next polls it, which is the same rule the pads follow. */
 static void ApplyArcadeInput(void)
 {
+	const arcade_panel::Words words = arcade_panel::Compute(
+		&g_arcadeButtons[ARCADE_P1_UP], &g_arcadeButtons[ARCADE_P2_UP], &g_arcadeButtons[ARCADE_TWIN_FIRST]);
 	for (int p = 0; p < 2; p++)
-		for (int i = 0; i < 12; i++)
-			ACJV::SetButtonState(p, kArcadePlayerBits[i],
-				g_arcadeButtons[(p == 0 ? ARCADE_P1_UP : ARCADE_P2_UP) + i] != 0);
+	{
+		ACJV::SetButtonState(p, words.driven[p], false);
+		ACJV::SetButtonState(p, words.pressed[p], true);
+	}
 
 	/* A coin is an EVENT, not a state: the board counts the pulses a coin
 	 * mech sends, so a held button must insert one coin and not a thousand. */
@@ -643,8 +639,6 @@ static void ApplyArcadeInput(void)
 
 	for (int i = 0; i < 8; i++)
 		ACJV::SetDrumHit(kArcadeDrumChannel[i], g_arcadeButtons[ARCADE_DRUM_FIRST + i] != 0);
-	for (int i = 0; i < 12; i++)
-		ACJV::SetButtonState(0, kArcadeTwinBits[i], g_arcadeButtons[ARCADE_TWIN_FIRST + i] != 0);
 
 	/* The wheel: one steering axis rather than the board's two half-axes,
 	 * because a wheel has one position and a movie should carry one column
