@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>
 #include <string>
 
 #include <emulibc.h>
@@ -220,6 +221,38 @@ static const char* const MEMCARD_NAME[PS2_SLOTS] = {
  * clock configuration, the region parameters, the machine's iLink id. PCSX2
  * names it after the bios file, and so does this. */
 static const char* const NVRAM_NAME = "bios.nvm";
+
+/* PCSX2's own names for the console's two cards (chimera#156): a card brought
+ * from PCSX2 is Mcd001.ps2 or Mcd002.ps2, and is read as it is - a person does
+ * not have to rename it. What leaves through Export Save Data keeps the
+ * canonical memcardN.ps2. */
+static const char* const PCSX2_MEMCARD_NAME[2] = { "Mcd001.ps2", "Mcd002.ps2" };
+
+/* The name the project brought a card under, if it brought one: the entry of
+ * the save data slot that is `name` (PCSX2's names are matched without regard
+ * to case, as a file from Windows may come either way). */
+static bool SaveDataHas(const char* name, char* found, size_t found_size)
+{
+	char entry[512];
+	const int32_t saves = wbx_slot_count("savedata");
+	for (int32_t i = 0; i < saves; i++)
+		if (wbx_slot_name("savedata", i, entry, sizeof(entry)) != nullptr && !strcasecmp(entry, name))
+		{
+			snprintf(found, found_size, "%s", entry);
+			return true;
+		}
+	return false;
+}
+
+/* The file card `card` opens: PCSX2's own name when the project brought the
+ * card under it, the canonical one otherwise. */
+static std::string CardFileName(int card)
+{
+	char found[512];
+	if (card < 2 && SaveDataHas(PCSX2_MEMCARD_NAME[card], found, sizeof(found)))
+		return found;
+	return MEMCARD_NAME[card];
+}
 
 #ifdef CHIMERA_ARCADE
 /* The NAMCO board's 32KB of battery-backed settings memory. */
@@ -922,7 +955,7 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		{
 			si.SetBoolValue("MemoryCards", fmt::format("Slot{}_Enable", card + 1).c_str(), present);
 			si.SetStringValue("MemoryCards", fmt::format("Slot{}_Filename", card + 1).c_str(),
-				MEMCARD_NAME[card]);
+				CardFileName(card).c_str());
 		}
 		else
 		{
@@ -1350,12 +1383,26 @@ ECL_EXPORT int Init(void)
 			bool known = false;
 			for (const char* known_name : kKnownSaves)
 				if (!strcmp(entry, known_name)) { known = true; break; }
+			for (int card = 0; card < 2 && !known; card++)
+				if (!strcasecmp(entry, PCSX2_MEMCARD_NAME[card])) known = true;
 			if (!known)
 			{
 				snprintf(g_loadError, sizeof(g_loadError),
 					"this machine does not read save data called \"%s\". It reads "
 					"memcard1.ps2, memcard2.ps2 and bios.nvm - the names Export Save "
-					"Data writes.", entry);
+					"Data writes - and PCSX2's own Mcd001.ps2 and Mcd002.ps2.", entry);
+				return 0;
+			}
+		}
+		/* one card to a slot: the same slot's card under both of its names is
+		 * two cards, and which one is in the machine would be a guess */
+		for (int card = 0; card < 2; card++)
+		{
+			char a[512], b[512];
+			if (SaveDataHas(MEMCARD_NAME[card], a, sizeof(a)) && SaveDataHas(PCSX2_MEMCARD_NAME[card], b, sizeof(b)))
+			{
+				snprintf(g_loadError, sizeof(g_loadError),
+					"the save data carries two cards for slot %d, %s and %s - keep one", card + 1, a, b);
 				return 0;
 			}
 		}

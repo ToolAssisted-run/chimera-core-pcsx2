@@ -666,6 +666,33 @@ else
 	report "savedata:roundtrip" PASS "mounted, seen by the machine, and returned unchanged"
 fi
 
+# PCSX2's own name for a card (chimera#156): the same card as Mcd001.ps2 is
+# the same machine, and leaves under the canonical name; a project carrying
+# the slot's card under both names is refused rather than guessed at.
+pcsx2name="$work/mounted-pcsx2name"
+mkdir -p "$pcsx2name"
+cp "$bios" "$pcsx2name/bios.bin"
+printf '{}' > "$pcsx2name/settings"
+cp "$mounted/memcard1.ps2" "$pcsx2name/Mcd001.ps2"
+printf '{"savedata":["Mcd001.ps2"]}' > "$pcsx2name/slots"
+sdp="$work/savedata-pcsx2name"
+mkdir -p "$sdp"
+as_mcd="$("$nat/run-native" "$pcsx2name" --frames 200 --savedata-out "$sdp" 2>/dev/null | digests)"
+box_mcd="$("$nat/run-wbx" "$gst/core.wbx" "$pcsx2name" --frames 200 2>/dev/null | digests)"
+cp "$mounted/memcard1.ps2" "$pcsx2name/memcard1.ps2"
+printf '{"savedata":["Mcd001.ps2","memcard1.ps2"]}' > "$pcsx2name/slots"
+both="$("$nat/run-wbx" "$gst/core.wbx" "$pcsx2name" --frames 1 2>&1 | tail -1)"
+if [ "$as_mcd" != "$with_card" ] || [ "$box_mcd" != "$with_card" ]; then
+	report "savedata:pcsx2-name" FAIL "a card called Mcd001.ps2 is not the machine memcard1.ps2 makes"
+elif ! cmp -s "$mounted/memcard1.ps2" "$sdp/memcard1.ps2"; then
+	report "savedata:pcsx2-name" FAIL "the card did not come back as memcard1.ps2"
+else
+	case "$both" in
+		*"two cards for slot 1"*) report "savedata:pcsx2-name" PASS "Mcd001.ps2 is slot 1's card, native == sandbox; both names refused" ;;
+		*) report "savedata:pcsx2-name" FAIL "a project with both names was not refused: $both" ;;
+	esac
+fi
+
 # ---- eight cards behind two multitaps --------------------------------------
 # A multitap turns one socket into four, for memory cards as well as pads, and
 # the six extra card slots are reachable ONLY with one plugged in. So this asks
