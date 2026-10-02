@@ -32,6 +32,7 @@
  * native reference build (native-shim/emulibc.h), which is what makes the
  * equivalence gate a real proof.
  */
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -80,15 +81,19 @@
 
 /* ---------------------------------------------------------------------------
  * What the frontend sees. A PS2's picture has no fixed size - the display
- * circuits are programmed by the game - so the buffer here is the largest a
- * console can scan out, and the frame's real size travels with it.
+ * circuits are programmed by the game - so the buffer is large and the
+ * frame's real size travels with it: 2560x2048 holds an ordinary frame at 4x
+ * internal resolution (chimera#170) and a 1080i one at 1x, both of which the
+ * old 1280x1024 cropped. A bigger frame is shrunk to fit (gs-device.cpp).
+ * INVISIBLE: it is the frame the frontend reads, rewritten every frame, and
+ * no part of the machine - 20 MB that a savestate has no business holding.
  */
-#define MAX_WIDTH 1280
-#define MAX_HEIGHT 1024
+#define MAX_WIDTH 2560
+#define MAX_HEIGHT 2048
 #define MAX_SAMPLES 4096
 
 static char g_loadError[512];
-static uint32_t g_video[MAX_WIDTH * MAX_HEIGHT];
+ECL_INVISIBLE static uint32_t g_video[MAX_WIDTH * MAX_HEIGHT];
 static int g_videoWidth = 640;
 static int g_videoHeight = 448;
 static int16_t g_soundOut[MAX_SAMPLES * 2];
@@ -902,6 +907,18 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		si.SetIntValue("EmuCore/GS", "filter", kFilterModes[SettingIndex("textureFiltering", kFilter, 4, 0)]);
 		si.SetBoolValue("EmuCore/GS", "fxaa",
 			gsRenderer == GSRendererType::OGL && wbx_setting_bool("fxaa", 0) != 0);
+	}
+	/* Internal resolution (chimera#170): PCSX2's own upscaling, which draws
+	 * every render target at a multiple of the console's size. OpenGL renderers
+	 * only - the software rasteriser draws what the GS draws, at its size - and
+	 * a sync setting for the same reason textureFiltering is: a game that reads
+	 * its picture back reads it through GSTextureCache::Read, which scales an
+	 * upscaled target back down, and that is not bit-for-bit the native one. */
+	{
+		static const char* const kScales[] = { "1x", "2x", "3x", "4x" };
+		const int scale = SettingIndex("internalResolution", kScales, 4, 0) + 1;
+		si.SetFloatValue("EmuCore/GS", "upscale_multiplier",
+			gsRenderer == GSRendererType::OGL ? static_cast<float>(scale) : 1.0f);
 	}
 	si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
 	si.SetBoolValue("EmuCore/GS", "OsdShowMessages", false);
@@ -1764,19 +1781,21 @@ ECL_EXPORT uint32_t* GetVideoBgra(void)
 	if (!ChimeraGSGetFrame(&bits, &pitch, &width, &height))
 		return g_video;
 
-	width = (width > MAX_WIDTH) ? MAX_WIDTH : width;
-	height = (height > MAX_HEIGHT) ? MAX_HEIGHT : height;
+	/* a frame still bigger than the buffer is shrunk to fit, a pixel in every step */
+	const int step = std::max(1, std::max((width + MAX_WIDTH - 1) / MAX_WIDTH, (height + MAX_HEIGHT - 1) / MAX_HEIGHT));
+	width /= step;
+	height /= step;
 	g_videoWidth = width;
 	g_videoHeight = height;
 
 	/* The GS device holds RGBA8; a frontend takes BGRA. */
 	for (int y = 0; y < height; y++)
 	{
-		const uint32_t* src = reinterpret_cast<const uint32_t*>(bits + static_cast<size_t>(y) * pitch);
+		const uint32_t* src = reinterpret_cast<const uint32_t*>(bits + static_cast<size_t>(y) * step * pitch);
 		uint32_t* dst = &g_video[static_cast<size_t>(y) * width];
 		for (int x = 0; x < width; x++)
 		{
-			const uint32_t p = src[x];
+			const uint32_t p = src[x * step];
 			dst[x] = (p & 0xFF00FF00u) | ((p & 0x00FF0000u) >> 16) | ((p & 0x000000FFu) << 16);
 		}
 	}

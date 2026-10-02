@@ -158,6 +158,26 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-10-02** Internal resolution, 1x to 4x (chimera issue #170, approved by
+  Sergio): `internalResolution` sets PCSX2's own `upscale_multiplier` under the
+  OpenGL renderers; the software rasteriser ignores it. A sync setting for the
+  same reason Texture Filtering is: GSTextureCache::Read scales an upscaled
+  target back down when a game reads its picture, and that need not be the
+  native bytes. Measured on Gran Turismo 4, 900 frames on the 1060: 2x draws
+  1280x896 where 1x draws 640x448, and EE RAM is byte-identical; the gate's
+  gpu:picture leg now proves it alongside nearest and fxaa (one machine, four
+  pictures).
+
+  The frame buffer grew to 2560x2048 (a frame at 4x, and a 1080i frame at 1x,
+  which the old 1280x1024 cropped) and went INVISIBLE, as did the OpenGL
+  readback that used to be a heap vector: neither is the machine, and the old
+  buffer put 5 MB of picture into every savestate. A frame larger still (a
+  high-resolution mode at 3x or 4x) is shrunk on the GPU with PCSX2's own
+  StretchRect before it is read; reading it in bands needs
+  glGetTextureSubImage, which the GPU bridge does not carry (tried: the call
+  went to address 0). That path was proved by forcing a 1000-wide limit: the
+  2x frame came back at 640x448, the same picture, the same EE RAM.
+
 - **2026-09-21** Nine graphics options, classified by measurement (chimera
   issue #122): two declared, seven not, and the reason for each is a number.
 

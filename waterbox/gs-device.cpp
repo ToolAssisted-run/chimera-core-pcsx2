@@ -48,6 +48,8 @@
 #include <cmath>
 #include <vector>
 
+#include <emulibc.h>
+
 /* Set by the "verbose" setting (cinterface.cpp), which owns it because it must
  * live outside the savestate: a diagnostic switch is not machine state, and a
  * state saved with tracing off would otherwise turn it off again on load. */
@@ -739,8 +741,20 @@ std::unique_ptr<GSDevice> MakeChimeraGSDevice()
 	return std::make_unique<ChimeraDevice>();
 }
 
+/* Where an OpenGL frame is read back to. Not a heap vector: that is part of
+ * every savestate, and at 4x internal resolution a frame is 18 MB. Taken from
+ * the invisible heap on first use, the pointers invisible too so that a state
+ * loaded later cannot hand back a null and make it take the memory again. */
+static constexpr int kFrameMaxW = 2560, kFrameMaxH = 2048;
+ECL_INVISIBLE static u8* g_frameBack;
+
 /* The finished frame, for cinterface.cpp: the bytes of whatever the GS last
- * presented, or nothing if it has not presented yet.
+ * presented, or nothing if it has not presented yet. An OpenGL frame larger
+ * than the frontend's buffer (a high-resolution mode at 3x or 4x) is shrunk to
+ * fit on the GPU first - PCSX2's own StretchRect into a smaller target, point
+ * sampled like everything else here - and that is what is read back. (Reading
+ * it in bands would need glGetTextureSubImage, which the GPU bridge does not
+ * carry.)
  */
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height)
 {
@@ -755,16 +769,32 @@ extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* 
 	 * whatever is in framebuffer 0 is whatever was left lying there. */
 	if (g_gs_device->GetRenderAPI() == RenderAPI::OpenGL)
 	{
-		static std::vector<u8> readback;
-		const GSVector2i size = current->GetSize();
-		const size_t need = (size_t)size.x * size.y * 4;
-		if (readback.size() < need)
-			readback.resize(need);
+		if (!g_frameBack)
+			g_frameBack = static_cast<u8*>(alloc_invisible((size_t)kFrameMaxW * kFrameMaxH * 4));
+		GSVector2i size = current->GetSize();
+		if (size.x <= 0 || size.y <= 0)
+			return false;
 
-		glGetTextureImage(static_cast<GSTextureOGL*>(current)->GetID(), 0,
-			GL_RGBA, GL_UNSIGNED_BYTE, (GLsizei)readback.size(), readback.data());
+		GSTexture* frame = current;
+		GSTexture* fitted = nullptr;
+		if (size.x > kFrameMaxW || size.y > kFrameMaxH)
+		{
+			const int step = std::max((size.x + kFrameMaxW - 1) / kFrameMaxW, (size.y + kFrameMaxH - 1) / kFrameMaxH);
+			const GSVector2i out(size.x / step, size.y / step);
+			fitted = g_gs_device->CreateRenderTarget(out, GSTexture::Format::Color, false);
+			if (!fitted)
+				return false;
+			g_gs_device->StretchRect(current, fitted, GSVector4(0.0f, 0.0f, (float)out.x, (float)out.y),
+				ShaderConvert::COPY, Filter::Nearest);
+			frame = fitted;
+			size = out;
+		}
 
-		*bits = readback.data();
+		glGetTextureImage(static_cast<GSTextureOGL*>(frame)->GetID(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+			(GLsizei)((size_t)size.x * size.y * 4), g_frameBack);
+		if (fitted)
+			g_gs_device->Recycle(fitted);
+		*bits = g_frameBack;
 		*pitch = size.x * 4;
 		*width = size.x;
 		*height = size.y;

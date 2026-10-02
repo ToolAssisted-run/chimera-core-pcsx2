@@ -1001,7 +1001,7 @@ fi
 # no disc here did in the frames run, and the declaration says so.
 gfxdisc="${PCSX2_GFX_DISC:-}"
 if [ -z "$gfxdisc" ] || [ ! -f "$gfxdisc" ]; then
-	report "gpu:picture" SKIP "set PCSX2_GFX_DISC to a disc: would prove textureFiltering and fxaa change the picture and nothing else"
+	report "gpu:picture" SKIP "set PCSX2_GFX_DISC to a disc: would prove textureFiltering, fxaa and internalResolution change the picture and nothing else"
 elif [ -z "$bios" ]; then
 	report "gpu:picture" SKIP "needs a bios as well as PCSX2_GFX_DISC"
 else
@@ -1029,7 +1029,8 @@ else
 		report "gpu:picture" FAIL "the baseline run did not complete $gfxFrames frames: $(grep -v '^\s*$' "$work/gp.base.err" | tail -1 | cut -c1-100)"
 	else
 		gpBad=""
-		for v in 'nearest {"renderer":"opengl-hw","textureFiltering":"nearest"}' 'fxaa {"renderer":"opengl-hw","fxaa":true}'; do
+		for v in 'nearest {"renderer":"opengl-hw","textureFiltering":"nearest"}' 'fxaa {"renderer":"opengl-hw","fxaa":true}' \
+			'upscale {"renderer":"opengl-hw","internalResolution":"2x"}'; do
 			name="${v%% *}"
 			hash="$(gpRun "$name" "${v#* }")"
 			cmp -s "$work/gp.base.machine" "$work/gp.$name.machine" \
@@ -1038,7 +1039,7 @@ else
 				|| gpBad="$gpBad $name drew the same picture as the default over $gfxFrames frames;"
 		done
 		if [ -z "$gpBad" ]; then
-			report "gpu:picture" PASS "$gfxFrames frames of $(basename "$gfxdisc"): one machine, three pictures (default, nearest, fxaa)"
+			report "gpu:picture" PASS "$gfxFrames frames of $(basename "$gfxdisc"): one machine, four pictures (default, nearest, fxaa, 2x internal resolution)"
 		else
 			report "gpu:picture" FAIL "$(printf '%s' "$gpBad" | head -c 200)"
 		fi
