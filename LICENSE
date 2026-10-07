@@ -20,7 +20,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Note: this covers the integration in this repository. The built core also
-contains Flycast (GPL-2.0-or-later) and skmp's refsw (BSD-3-Clause), and the
-package as a whole is therefore distributed under the GPL-2.0-or-later; see
-waterbox/package-licenses.json.
+Note: this licence covers the integration this repository adds: the waterbox/
+driver, scripts and shims. The patches/ directory modifies PCSX2 and is
+offered under PCSX2's own terms (GPL-3.0-or-later). The built core also
+contains PCSX2 and the NAMCO System 246/256 board from the PCSX2x6 fork, and
+the package as a whole is therefore distributed under the GPL-3.0-or-later;
+see waterbox/package-licenses.json.

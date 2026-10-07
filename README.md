@@ -10,11 +10,11 @@ picture is not the problem it was for Flycast. And it cannot run ANYTHING
 without a bios - a PS2 has no HLE bios - so what its gate can prove depends on
 content the user supplies locally (never committed; see .gitignore).
 
-Everything is interpreted: the EE, the IOP, both vector units, and the software
-rasteriser's C++ scanline path. A game runs at about twenty frames a second,
-and the sandbox costs almost nothing on top of that. The recompilers are an
-optimisation this core has not needed yet, and the sandbox turns out to be able
-to host executable memory, so they are not ruled out.
+The CPUs are a setting (`cpu_core`): PCSX2's recompilers for the EE, the IOP
+and both vector units, which is the default, or its interpreters. They are
+different machines - the recompiler's EE floating point is not the
+interpreter's - so a project pins the choice. The software rasteriser takes its
+C++ scanline path either way.
 
 ## Using it in Chimera
 
@@ -75,7 +75,7 @@ and requires the machine it builds to be the machine the core gate signed off
 on, that a setting arrives through the frontend, and that the package's
 bindings become the frontend's defaults.
 
-The port's history, the twelve patches and what remains are in
+The port's history, the patches and what remains are in
 [`docs/PLAN.md`](docs/PLAN.md).
 
 Status: **M1 to M6.** A commercial game boots, draws, takes input and saves,
