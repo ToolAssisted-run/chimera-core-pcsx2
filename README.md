@@ -16,12 +16,26 @@ and the sandbox costs almost nothing on top of that. The recompilers are an
 optimisation this core has not needed yet, and the sandbox turns out to be able
 to host executable memory, so they are not ruled out.
 
+## Using it in Chimera
+
+Chimera ships no cores and downloads nothing. Download the `.chimeraCore`
+package from this repository's
+[Releases](https://github.com/ToolAssisted-run/chimera-core-pcsx2/releases)
+page, or build it, and put it in the `Cores` folder beside `Chimera.exe`;
+File > Core Manager lists what is there. The same file runs on Linux and on
+Windows. The bios and the games are yours to provide.
+
 ## Building
 
+The build, in short - it needs a Chimera checkout with miniBox built, and
+[`docs/BUILDING.md`](docs/BUILDING.md) has every step, option and requirement.
+[`AGENTS.md`](AGENTS.md) is the operating guide for an AI coding agent.
+
 ```sh
+bash waterbox/setup-mesa.sh               # the guest Mesa: fetched once (SHA-256 pinned), built into build/mesa
 meson setup build/meson-native            # the native reference and the runners
 ninja -C build/meson-native
-sh waterbox/setup-guest.sh                # the sandboxed core
+sh waterbox/setup-guest.sh -- -Dmesa_guest_dir="$PWD/build/mesa"   # the sandboxed core
 ninja -C build/meson-guest
 ```
 
