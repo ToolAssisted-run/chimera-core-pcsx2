@@ -447,6 +447,16 @@ void ACJV::SetButtonState(u32 player, u16 mask, bool pressed)
 		m_jvsButtonState[player] &= ~mask;
 }
 
+// chimera: the TEST button. The fork keeps m_testButtonState and ORs it into
+// the system switch byte, but nothing in it ever set the variable: a cabinet
+// could be put into its test menu by the DIP switch and by nothing else, and a
+// game that waits for TEST to be pressed again to leave it never left
+// (chimera issue #219).
+void ACJV::SetTestButton(bool pressed)
+{
+	m_testButtonState = pressed ? TESTMODE : 0;
+}
+
 void ACJV::SetMacroState(u32 player, u32 index, bool active)
 {
 	if (player >= JVS_PLAYER_COUNT || index >= NUM_JVS_MACROS)
@@ -1270,7 +1280,7 @@ void ACJV::UpdateFcaFrame()
 	rdbuf[0x41] = b41;
 
 	// TEST switch (rdbuf[0xe2] b7): RRV's FCA path bypasses the standard DIP register, so feed Test Mode here.
-	rdbuf[0xe2] = (s_dip_switch_state & TESTMODE) ? 0x80 : 0;
+	rdbuf[0xe2] = ((s_dip_switch_state & TESTMODE) || m_testButtonState) ? 0x80 : 0;
 
 	// COIN: FCA-1 coin counter @rdbuf[0xc0]; RRV credits on increase (FUN_0022aa88). Mirror our coin count.
 	rdbuf[0xc0] = (u8)ACJV::coin[0];

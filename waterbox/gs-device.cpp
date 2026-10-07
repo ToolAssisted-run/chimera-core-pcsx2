@@ -742,11 +742,31 @@ std::unique_ptr<GSDevice> MakeChimeraGSDevice()
 }
 
 /* Where an OpenGL frame is read back to. Not a heap vector: that is part of
- * every savestate, and at 4x internal resolution a frame is 18 MB. Taken from
- * the invisible heap on first use, the pointers invisible too so that a state
- * loaded later cannot hand back a null and make it take the memory again. */
+ * every savestate, and at 4x internal resolution a frame is 18 MB. It is
+ * invisible memory, and so is the pointer to it.
+ *
+ * It is taken DURING INIT (ChimeraGSReserveFrame) and never later. What a
+ * state load leaves alone in the invisible heap is the CONTENTS of its pages.
+ * Whether a page is mapped at all is part of every state, and so is the
+ * allocator's own cursor (emulibc's __invisible_current is ordinary data). So
+ * memory taken on first use - which is what this did - was unmapped again by
+ * loading any state made before that first use, the frame-0 anchor to begin
+ * with, while this pointer, being invisible, went on pointing at it. The next
+ * read-back was the GPU driver writing through it into nothing, in host code,
+ * which is the end of the process and not of the machine (chimera issue #217:
+ * going back to the start of a run under the hardware renderer). And a state
+ * loaded by a new process before its first frame carried the cursor past the
+ * memory the last process took, so every reopening took 20 MB more of a 64 MB
+ * heap. Taken before the first state exists, the mapping and the cursor are
+ * the same in every state there will ever be. */
 static constexpr int kFrameMaxW = 2560, kFrameMaxH = 2048;
 ECL_INVISIBLE static u8* g_frameBack;
+
+extern "C" void ChimeraGSReserveFrame()
+{
+	if (!g_frameBack)
+		g_frameBack = static_cast<u8*>(alloc_invisible((size_t)kFrameMaxW * kFrameMaxH * 4));
+}
 
 /* The finished frame, for cinterface.cpp: the bytes of whatever the GS last
  * presented, or nothing if it has not presented yet. An OpenGL frame larger
@@ -769,8 +789,9 @@ extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* 
 	 * whatever is in framebuffer 0 is whatever was left lying there. */
 	if (g_gs_device->GetRenderAPI() == RenderAPI::OpenGL)
 	{
+		/* never taken here: see g_frameBack */
 		if (!g_frameBack)
-			g_frameBack = static_cast<u8*>(alloc_invisible((size_t)kFrameMaxW * kFrameMaxH * 4));
+			return false;
 		GSVector2i size = current->GetSize();
 		if (size.x <= 0 || size.y <= 0)
 			return false;

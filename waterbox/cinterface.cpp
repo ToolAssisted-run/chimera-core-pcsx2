@@ -279,6 +279,7 @@ extern "C" bool chimera_gl_bridge_start(chimera_gl_bridge_fn_t bridge);
 extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height);
+extern "C" void ChimeraGSReserveFrame();
 
 /* Lag detection: the machine looking at its input is what a lag frame IS. The
  * pad answers a poll from the SIO, which is where this is called from.
@@ -621,6 +622,7 @@ enum
 	ARCADE_DRUM_FIRST,
 	ARCADE_TWIN_FIRST = ARCADE_DRUM_FIRST + 8,
 	ARCADE_TOUCH_PRESS = ARCADE_TWIN_FIRST + 12,
+	ARCADE_TEST, /* added last (chimera issue #219): see the note above */
 	ARCADE_BTN_COUNT,
 };
 enum
@@ -694,6 +696,11 @@ static void ApplyArcadeInput(void)
 	ACJV::SetTouchRelativeAxis(0, static_cast<float>(g_arcadeAxes[ARCADE_AXIS_TOUCH_X]) / 32767.0f);
 	ACJV::SetTouchRelativeAxis(2, static_cast<float>(g_arcadeAxes[ARCADE_AXIS_TOUCH_Y]) / 32767.0f);
 	ACJV::SetTouchPressed(g_arcadeButtons[ARCADE_TOUCH_PRESS] != 0);
+
+	/* The cabinet's TEST button, as distinct from its TEST DIP switch (the
+	 * dip_test setting): a button is pressed and let go while the machine
+	 * runs, so it is a column in the movie. The board reports both in one bit. */
+	ACJV::SetTestButton(g_arcadeButtons[ARCADE_TEST] != 0);
 }
 #endif /* CHIMERA_ARCADE */
 
@@ -808,6 +815,10 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		 * that cannot have a GPU today should still run. */
 		if (!strcmp(value, "opengl") || !strcmp(value, "opengl-hw"))
 			gsRenderer = GSRendererType::OGL;
+		/* The memory a GL frame is read back into, now and not at the first
+		 * frame: taken after a state exists, that state unmaps it. */
+		if (gsRenderer == GSRendererType::OGL)
+			ChimeraGSReserveFrame();
 	}
 #endif
 	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(gsRenderer));

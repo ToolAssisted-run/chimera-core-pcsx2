@@ -224,7 +224,8 @@
 			"P1 Right Trigger": "LeftControl",
 			"P1 Left Button": "O",
 			"P1 Right Button": "P",
-			"Touch": "M"
+			"Touch": "M",
+			"Test": "F2"
 		}
 	},
 	"AllTrollersAutoFire": {

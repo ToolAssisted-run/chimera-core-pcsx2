@@ -161,6 +161,9 @@ namespace ACJV {
     std::string GetCurrentLayoutKey();                  // running game's layout key, or empty
     std::string MacroConfigKey(const std::string& layoutKey, u32 player, u32 index, const char* suffix);
     void SetButtonState(u32 player, u16 mask, bool pressed);
+    // chimera: the cabinet's TEST button, held or not. The board reports it in the
+    // same bit as the TEST DIP switch, so a game cannot tell the two apart.
+    void SetTestButton(bool pressed);
     void SetMacroState(u32 player, u32 index, bool active); // JVS input macro trigger: fire its switch set for the player
     void SetMacroMask(u32 player, u32 index, u16 mask);     // set a macro's combined switch mask (pushed by the frontend)
     void SetWheelAxis(u32 axis, float value);

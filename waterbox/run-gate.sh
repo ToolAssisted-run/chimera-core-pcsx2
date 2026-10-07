@@ -214,6 +214,26 @@ arcade_legs() {
 		report "$tag:panel" PASS "the JVS board took a coin at frame $((frames * 3 / 4)): idle != coin, native == waterboxed"
 	fi
 
+	# the TEST button (chimera issue #219): the cabinet's own, pressed while the
+	# machine runs, as distinct from the TEST DIP switch it boots with. The
+	# board had the variable for it and nothing that set it, so a game could be
+	# booted into its test menu and never taken out of it, or put into it.
+	# Held for thirty frames at the same point; the machine must leave what it
+	# was doing, differently from what a coin does to it, and both flavors must
+	# agree. (Test is wire 47, the last of the Arcade Panel.)
+	local tested boxtested
+	tested="$("$nat/run-native" "$wd" --frames "$frames" --press $((frames * 3 / 4)):30:47 2>/dev/null | digests)"
+	boxtested="$("$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" --press $((frames * 3 / 4)):30:47 2>/dev/null | digests)"
+	if [ "$tested" = "$idle" ]; then
+		report "$tag:test-button" FAIL "pressing Test made no difference to the machine"
+	elif [ "$tested" = "$held" ]; then
+		report "$tag:test-button" FAIL "pressing Test did what a coin does"
+	elif [ "$tested" != "$boxtested" ]; then
+		report "$tag:test-button" FAIL "native and sandbox disagree with Test pressed"
+	else
+		report "$tag:test-button" PASS "Test pressed at frame $((frames * 3 / 4)): another machine than idle and than a coin, native == waterboxed"
+	fi
+
 	# the picture: the board must have drawn something by the end
 	"$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" --screenshot "$work/$tag.tga" >/dev/null 2>&1
 	local lit
@@ -1215,6 +1235,30 @@ else
 			report "gl:rebuild-at-zero" FAIL "restoring frame 2 made only $two GL calls on the next frame: the device was not rebuilt"
 		else
 			report "gl:rebuild-at-zero" PASS "a restore rebuilds the GS device wherever it lands - $zero calls after frame 0, $two after frame 2"
+		fi
+
+		# --- a frame read back AFTER going back to the start (chimera issue #217) ---
+		# The leg above draws nothing after its restore: chimera-run reads a frame
+		# back only when asked, and it was not asked. That is how this stayed
+		# hidden. The memory a GL frame is read back into was taken on first use,
+		# and loading a state made before that - the frame-0 anchor - unmapped it
+		# while the core's pointer, which is invisible, went on pointing at it. The
+		# next read-back was the driver writing into nothing, in host code: the
+		# process died, in Chimera as here. So: every frame read back, back to the
+		# start, every frame read back again. Run against the build before the
+		# fix, this is "Segmentation fault", exit 139.
+		if grep -q "^chimera gl: no context" "$gz/rewind.0.log"; then
+			report "gl:readback-after-zero" SKIP "this build or this machine gives the bridge no GL context"
+		else
+			"$crun" "$cpkg" "$padelf" "$gz/movie.txt" --settings '{"renderer":"opengl-hw"}' --frames 40 \
+				--firmware "bios.bin=$bios" --gpu --greenzone 4096 --render-every-frame --rewind-loop 0,1 \
+				> "$gz/readback.log" 2>&1
+			rc=$?
+			if [ "$rc" != 0 ] || ! grep -q '^frames=40' "$gz/readback.log"; then
+				report "gl:readback-after-zero" FAIL "reading a frame back after returning to frame 0 ended the run (exit $rc): $(grep -v '^\[ce-gl\]' "$gz/readback.log" | tail -1 | cut -c1-100)"
+			else
+				report "gl:readback-after-zero" PASS "every frame read back, back to frame 0, every frame read back again: the read-back memory is still there"
+			fi
 		fi
 	fi
 fi

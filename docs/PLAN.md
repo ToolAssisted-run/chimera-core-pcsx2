@@ -858,3 +858,31 @@ straight to the browser. Guest and native produce the same kilobyte.
   the target changes and the game walks on to its memory card prompt. The
   `gun:aims` leg does exactly that, and fails if the machine moves while the
   picture does not - which is the shape this bug had.
+
+- **Invisible memory is taken during Init, never on first use** (2026-10-07,
+  chimera#217). The buffer an OpenGL frame is read back into was taken from
+  the invisible heap the first time a frame was read back. What a state load
+  leaves alone in that heap is the CONTENTS of its pages; whether a page is
+  mapped at all is in every state, and so is the allocator's cursor. So
+  loading a state made before that first read-back - the frame-0 anchor -
+  unmapped the buffer under a pointer that, being invisible, kept pointing at
+  it, and the next read-back was the GPU driver writing into nothing: in host
+  code, so the process went and not the machine. The report said "4x
+  resolution"; it is any resolution under the hardware renderer, on going
+  back to the start. It also grew: a state loaded by a new process before its
+  first frame carried the cursor past what the last process took, 20 MB a
+  reopening out of 64. `gl:rebuild-at-zero` could not see any of it, because
+  chimera-run reads a frame back only when asked and that leg never asks;
+  `gl:readback-after-zero` asks for every frame, and against the build before
+  the fix it is a segmentation fault.
+- **The cabinet has a Test button as well as a Test switch** (2026-10-07,
+  chimera#219). The I/O board reports the two in one bit, and the fork's code
+  keeps a variable for the button that nothing ever set, so the DIP switch
+  (the `dip_test` setting) was the only way into a test menu and a game that
+  waits for Test to be pressed again never left it. `Test` is the last line
+  of the Arcade Panel. On Super Dragon Ball Z, held for thirty frames, it
+  brings up the maintenance warning; pressed again, the test menu.
+  `<board>:test-button` holds it and requires another machine than idle and
+  than a coin, the same in both flavors; with the button unwired the run is
+  the idle one.
+
