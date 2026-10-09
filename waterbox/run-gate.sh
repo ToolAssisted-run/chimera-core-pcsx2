@@ -1260,6 +1260,61 @@ else
 				report "gl:readback-after-zero" PASS "every frame read back, back to frame 0, every frame read back again: the read-back memory is still there"
 			fi
 		fi
+
+		# --- the frames after a load are the pictures they were (chimera issue 190) ---
+		# Under the OpenGL renderer a render target is a texture on the card, and
+		# so are the fields the deinterlacer weaves a picture from. A state held
+		# none of it, a load rebuilt the device from the GS's own memory, and on
+		# a GTX 1060 the first frame after a load was an empty one and the three
+		# after it were off in one pixel in fifteen. The core copies those
+		# textures into its own memory when the engine says a state is about to
+		# be taken (the StateSaving export) and gives them back to the same
+		# targets after a load (waterbox/gs-shadow.cpp, patch 0026).
+		#
+		# What it measures, with chimera-run --settle-probe: six frames are
+		# remembered as first drawn, the machine is put back on the frame before
+		# them - a state on every frame, so the load lands exactly there - and
+		# each is drawn again and compared. All six must come back exactly. And
+		# the same run with CHIMERA_NO_STATE_SAVING=1, the engine leaving the
+		# core untold, must NOT: that is the control, and it is how every frame
+		# after a load used to be (wrong for four, through llvmpipe as on the
+		# card - the deinterlacer needs four fields to forget).
+		#
+		# WHAT IT DOES NOT STAND IN FOR: padtest.elf's picture holds still, and
+		# llvmpipe is not a driver. The proof on a moving 3D scene, on a real
+		# card, is in docs/PLAN.md - and so is what does not come back above the
+		# machine's own resolution.
+		if grep -q "^chimera gl: no context" "$gz/rewind.0.log"; then
+			report "gl:picture-after-load" SKIP "this build or this machine gives the bridge no GL context"
+		else
+			pal="$work/glafterload"
+			mkdir -p "$pal"
+			palrun() { # <movie> <log> <chimera-run arguments...>
+				palmovie="$1"; pallog="$2"; shift 2
+				CHIMERA_PICTURE_TRACE=1 "$crun" "$cpkg" "$padelf" "$palmovie" --settings '{"renderer":"opengl-hw"}' \
+					--frames 70 --firmware "bios.bin=$bios" "$@" > "$pallog" 2>&1 || true
+			}
+			exact() { grep -c ": 0.00% of pixels differ, 0.00% by more than 8 (largest 0)" "$1"; }
+			palrun "$gz/none.txt" "$pal/record.log" --record "$pal/movie.txt"
+			if [ ! -s "$pal/movie.txt" ]; then
+				report "gl:picture-after-load" FAIL "could not record a movie to go back through (see $pal/record.log)"
+			else
+				palprobe="--gpu --greenzone 4096 --greenzone-period 1 --greenzone-max-stride 1 --settle-probe 60,6"
+				palrun "$pal/movie.txt" "$pal/told.log" $palprobe
+				CHIMERA_NO_STATE_SAVING=1 palrun "$pal/movie.txt" "$pal/untold.log" $palprobe
+				if grep -q "^usage: chimera-run" "$pal/told.log"; then
+					report "gl:picture-after-load" SKIP "this chimera-run has no --settle-probe (an older Chimera)"
+				elif ! grep -q "pictrace: load, on frame 60:" "$pal/told.log" || ! grep -q "pictrace: load, on frame 60:" "$pal/untold.log"; then
+					report "gl:picture-after-load" FAIL "the load did not land on the frame before the ones compared, so nothing was measured (see $pal/told.log)"
+				elif ! grep -q "^settle-probe: the picture is wrong up to drawn frame" "$pal/untold.log"; then
+					report "gl:picture-after-load" FAIL "the control drew every frame right with the core left untold: this program does not show the loss, or the engine told the core anyway (see $pal/untold.log)"
+				elif [ "$(exact "$pal/told.log")" -ne 6 ]; then
+					report "gl:picture-after-load" FAIL "$(exact "$pal/told.log") of 6 frames after a load came back exactly: $(grep -m1 '^settle-probe: the picture is wrong' "$pal/told.log" || echo 'within the probe'"'"'s tolerance, not exact') (see $pal/told.log)"
+				else
+					report "gl:picture-after-load" PASS "six frames drawn right after a load are bit for bit the pictures they were; with the core left untold, $(sed -n 's/^settle-probe: the picture is wrong up to drawn frame #\([0-9]*\).*/the first \1 are not/p' "$pal/untold.log")"
+				fi
+			fi
+		fi
 	fi
 fi
 

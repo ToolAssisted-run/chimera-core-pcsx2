@@ -1,0 +1,86 @@
+diff --git a/pcsx2/GS/GS.cpp b/pcsx2/GS/GS.cpp
+--- a/pcsx2/GS/GS.cpp
++++ b/pcsx2/GS/GS.cpp
+@@ -382,6 +382,15 @@
+ 	return true;
+ }
+ 
++// chimera: see GS.h. What GSreopen does about the device, alone.
++bool ChimeraGSReopenDevice()
++{
++	const GSVSyncMode vsync_mode = g_gs_device->GetVSyncMode();
++	const bool allow_present_throttle = g_gs_device->IsPresentThrottleAllowed();
++	CloseGSDevice(false);
++	return OpenGSDevice(GSConfig.Renderer, false, false, vsync_mode, allow_present_throttle);
++}
++
+ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem,
+ 	GSVSyncMode vsync_mode, bool allow_present_throttle)
+ {
+diff --git a/pcsx2/GS/GS.h b/pcsx2/GS/GS.h
+--- a/pcsx2/GS/GS.h
++++ b/pcsx2/GS/GS.h
+@@ -60,6 +60,10 @@
+ 	GSVSyncMode vsync_mode, bool allow_present_throttle);
+ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_renderer,
+ 	std::optional<const Pcsx2Config::GSOptions*> old_config);
++// chimera: the device closed and opened again, and nothing else touched - no
++// flush, no purge. For waterbox/gs-shadow.cpp, which lets go of what belongs
++// to the old GL context itself and keeps the render targets (chimera issue 190).
++bool ChimeraGSReopenDevice();
+ void GSreset(bool hardware_reset);
+ void GSclose();
+ void GSgifSoftReset(u32 mask);
+diff --git a/pcsx2/GS/Renderers/Common/GSDevice.h b/pcsx2/GS/Renderers/Common/GSDevice.h
+--- a/pcsx2/GS/Renderers/Common/GSDevice.h
++++ b/pcsx2/GS/Renderers/Common/GSDevice.h
+@@ -1361,8 +1361,12 @@
+ 	}
+ }
+ 
++struct ChimeraGSShadow; // chimera: see Renderers/HW/GSTextureCache.h
++
+ class GSDevice : public GSAlignedClass<32>
+ {
++	friend struct ::ChimeraGSShadow;
++
+ public:
+ 	enum class PresentResult
+ 	{
+diff --git a/pcsx2/GS/Renderers/HW/GSRendererHW.h b/pcsx2/GS/Renderers/HW/GSRendererHW.h
+--- a/pcsx2/GS/Renderers/HW/GSRendererHW.h
++++ b/pcsx2/GS/Renderers/HW/GSRendererHW.h
+@@ -23,10 +23,13 @@
+ 	ClearWithDraw
+ };
+ 
++struct ChimeraGSShadow; // chimera: see GSTextureCache.h
++
+ class GSRendererHW : public GSRenderer
+ {
+ 	MULTI_ISA_FRIEND(GSRendererHWFunctions);
+ 	friend GSHwHack;
++	friend struct ::ChimeraGSShadow;
+ 
+ public:
+ 	static constexpr int MAX_FRAMEBUFFER_HEIGHT = 1280;
+diff --git a/pcsx2/GS/Renderers/HW/GSTextureCache.h b/pcsx2/GS/Renderers/HW/GSTextureCache.h
+--- a/pcsx2/GS/Renderers/HW/GSTextureCache.h
++++ b/pcsx2/GS/Renderers/HW/GSTextureCache.h
+@@ -17,8 +17,16 @@
+ // disabling caching between draws.
+ //#define DISABLE_HW_TEXTURE_CACHE
+ 
++// chimera: what the hardware renderer drew is on the card and nowhere else,
++// and a state load gives it a new GL context. waterbox/gs-shadow.cpp copies
++// the render targets and the deinterlacer's history into memory a state
++// carries, and gives them back to the same objects afterwards (chimera issue
++// 190). It reaches into these classes to do it, and nothing else does.
++struct ChimeraGSShadow;
++
+ class GSTextureCache
+ {
++	friend struct ::ChimeraGSShadow;
+ public:
+ 	friend GSHwHack;
+ 

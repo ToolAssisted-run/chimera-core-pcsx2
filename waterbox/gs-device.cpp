@@ -772,9 +772,7 @@ extern "C" void ChimeraGSReserveFrame()
  * presented, or nothing if it has not presented yet. An OpenGL frame larger
  * than the frontend's buffer (a high-resolution mode at 3x or 4x) is shrunk to
  * fit on the GPU first - PCSX2's own StretchRect into a smaller target, point
- * sampled like everything else here - and that is what is read back. (Reading
- * it in bands would need glGetTextureSubImage, which the GPU bridge does not
- * carry.)
+ * sampled like everything else here - and that is what is read back.
  */
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height)
 {

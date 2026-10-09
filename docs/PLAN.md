@@ -158,6 +158,66 @@ pad driver - and the count stops growing the moment it has.
 
 ## Log
 
+- **2026-10-09** The frames after a load are the pictures they were (chimera
+  issue 190; `waterbox/gs-shadow.cpp`, patch 0026). Measured on a GTX 1060,
+  Street Fighter EX3's 3D intro at frame 3600: the first frame after a load
+  was an empty one, the three after it were off in 6 to 8% of their pixels,
+  and the fifth was right. Maximo and Marvel vs. Capcom 2 the same, a still
+  screen included.
+  - *Why.* Under the OpenGL renderer a render target is a texture on the
+    card, and the GS's own memory under a frame buffer holds nothing: the
+    hardware renderer writes it there only when a game reads it. A state is
+    this core's memory. A load gives the renderer a new GL context, and the
+    rebuild - GSreopen's "we lost the device" - threw the texture cache away
+    and made targets again from that memory. The frame the game had drawn and
+    not yet shown, the depth it had not yet cleared, and the four fields the
+    deinterlacer keeps (its motion-adaptive buffer, which is why it took four
+    frames and why a still screen was wrong too) were gone.
+  - *The answer.* The core answers the engine's `StateSaving`, told before
+    every state is taken: each target of the texture cache, colour and depth,
+    and the deinterlacer's textures in the device are read - in the format
+    they are held in, band by band - into a block of the core's own memory,
+    which a state carries. A texture that did not change is compared and not
+    written again. After a load the rebuild keeps the cache's targets (its
+    sources, palettes and hash cache go, as before), lets go of every texture
+    of the old context BEFORE the device is opened again, gives each target a
+    new one and puts its pixels back; the deinterlacer's likewise. A target
+    with a clear pending holds the clear in the object and is given it back,
+    not read. One the block has nothing for goes, as all of them used to.
+  - *Not into the GS's memory*, where upstream's own "read targets when
+    closing" hack puts them. A game can read that memory and the renderer
+    falls back on it when a target goes, so a run that took a state would
+    hold other bytes there than a run that did not. And no flush: what the GS
+    has queued at a frame's end is vertices in this core's memory, drawn
+    later into the targets as they come back.
+  - *Proved on the card, at the machine's own resolution:* twelve frames
+    after a load, each bit for bit the picture it was, in all three games -
+    through the greenzone, by a whole state, onto an even frame and an odd
+    one, from states of frames nobody read, early in the boot and deep in the
+    intro. With the core left untold (`CHIMERA_NO_STATE_SAVING=1`) the first
+    four are wrong, as before: the control. Eight rewinds of 250 frames end
+    on the picture and the EE RAM of a run that never took a state, and a
+    state on every frame leaves the same picture and RAM told and untold.
+  - *What it costs.* In that scene six textures, 8.7 MB, nearly all of which
+    change every frame: a stored state is that much larger (a mean delta of
+    15.7 MB against 4.2), the history spaces itself out - 1136 states where
+    it kept 3701 over 3700 frames - and the run takes 40 s where it took 35.
+    It grows with the square of `internalResolution`: 78 MB at 3x.
+  - *What does not come back above 1x.* Drawn larger than the PS2 drew, a
+    sprite's edge samples a texel past what its texture was loaded with -
+    upstream's well-known upscaling lines - and what is there is whatever the
+    recycled texture held before, the history of the device's texture pool. A
+    new context's textures held nothing. At 2x 0.12% of the picture's pixels
+    differ after a load and at 3x 0.03%, on its edge rows, for as long as the
+    scene lasts - where it was 0.34% at 3x after four frames far worse.
+    Carrying the device's pool of spare targets as well was tried: it moved
+    those pixels and did not remove them.
+  - *Not carried:* a texture the 768 MiB block has no room for or whose
+    format the copy does not know, and the textures of an effect in flight
+    between two draws (the colour clip target), which are not the cache's.
+  - *The gate:* `gl:picture-after-load`, padtest.elf through llvmpipe, six
+    frames exact after a load and the untold control wrong for four.
+    `glGetTextureSubImage` joined this core's list of GL entry points.
 - **2026-10-02** Internal resolution, 1x to 4x (chimera issue #170, approved by
   Sergio): `internalResolution` sets PCSX2's own `upscale_multiplier` under the
   OpenGL renderers; the software rasteriser ignores it. A sync setting for the

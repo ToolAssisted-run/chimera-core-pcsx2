@@ -85,6 +85,7 @@ glGetString
 glGetStringi
 glGetTexImage
 glGetTextureImage
+glGetTextureSubImage
 glGetUniformBlockIndex
 glGetUniformLocation
 glInvalidateFramebuffer

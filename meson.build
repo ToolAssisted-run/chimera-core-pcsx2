@@ -208,6 +208,7 @@ driver_sources = files(
   'waterbox/host.cpp',
   'waterbox/host-sys.cpp',
   'waterbox/gs-device.cpp',
+  'waterbox/gs-shadow.cpp',
   'waterbox/audio-stream.cpp',
   'waterbox/stubs/frontend.cpp',
   'waterbox/stubs/peripherals.cpp',

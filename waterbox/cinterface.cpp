@@ -280,6 +280,12 @@ extern "C" void ChimeraAdvanceClock(void);
 extern "C" int ChimeraAudioPull(int16_t* out, int max_frames);
 extern "C" bool ChimeraGSGetFrame(const u8** bits, int* pitch, int* width, int* height);
 extern "C" void ChimeraGSReserveFrame();
+/* What the OpenGL renderer drew, kept across a state load (waterbox/gs-shadow.cpp). */
+extern "C" void ChimeraGSShadowReserve(void);
+extern "C" void ChimeraGSShadowFrameBegins(void);
+extern "C" void ChimeraGSShadowStateLoaded(void);
+extern "C" void ChimeraGSShadowSave(void);
+extern "C" bool ChimeraGSShadowRebuild(bool keep);
 
 /* Lag detection: the machine looking at its input is what a lag frame IS. The
  * pad answers a poll from the SIO, which is where this is called from.
@@ -818,7 +824,12 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 		/* The memory a GL frame is read back into, now and not at the first
 		 * frame: taken after a state exists, that state unmaps it. */
 		if (gsRenderer == GSRendererType::OGL)
+		{
 			ChimeraGSReserveFrame();
+			/* and the block the render targets are copied into before a
+			 * state is taken, for the same reason at the same moment */
+			ChimeraGSShadowReserve();
+		}
 	}
 #endif
 	si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(gsRenderer));
@@ -1724,7 +1735,11 @@ static void ChimeraCheckGLContext()
 	{
 		Console.WriteLn("chimera: GL objects came from context %llu, now %llu; rebuilding",
 			(unsigned long long)s_chimera_gl_context, (unsigned long long)live);
-		GSreopen(true, false, GSConfig.Renderer, std::nullopt);
+		/* After a load the texture cache's render targets are kept and given
+		 * back what a state carried of them (gs-shadow.cpp, chimera issue
+		 * 190); a rebuild for any other reason has nothing to give them, and
+		 * is GSreopen's "we lost the device" as it always was. */
+		ChimeraGSShadowRebuild(afterLoad);
 		while (glGetError() != GL_NO_ERROR) {}
 	}
 	s_chimera_gl_context = live;
@@ -1739,6 +1754,26 @@ ECL_EXPORT void StateLoaded(void)
 {
 #ifdef CHIMERA_GUEST_GL
 	s_chimera_gl_state_loaded = true;
+	ChimeraGSShadowStateLoaded();
+#endif
+}
+
+/* Told before every state the engine takes, the machine stopped at a frame's
+ * end. Under the OpenGL renderer the render targets and the deinterlacer's
+ * fields are textures on the card and in no state; they are copied into this
+ * core's memory here, and the rebuild after a load gives them back
+ * (gs-shadow.cpp). Not when the objects are another context's - a state taken
+ * after a load and before the next frame, whose copy is the one the load
+ * brought - and not for the softpipe, whose textures are memory already. */
+ECL_EXPORT void StateSaving(void)
+{
+#ifdef CHIMERA_GUEST_GL
+	if (!g_loaded || !g_gs_device || g_gs_device->GetRenderAPI() != RenderAPI::OpenGL)
+		return;
+	const uint64_t live = chimera_gl_context_id();
+	if (live == 0 || live != s_chimera_gl_context)
+		return;
+	ChimeraGSShadowSave();
 #endif
 }
 
@@ -1768,6 +1803,7 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 	 * vsync boundary pauses the machine. */
 #ifdef CHIMERA_GUEST_GL
 	ChimeraCheckGLContext();
+	ChimeraGSShadowFrameBegins();
 #endif
 	VMManager::FrameAdvance(1);
 	VMManager::Execute();
