@@ -165,10 +165,11 @@ arcade_legs() {
 	local frames=${PCSX2_ARCADE_FRAMES:-3600}
 	local before after
 	before="$(ls "$wd")"
-	if ! "$nat/run-native" "$wd" --frames "$frames" 2>"$work/anat.err" | digests > "$work/anat.txt"; then
+	if ! "$nat/run-native" "$wd" --frames "$frames" 2>"$work/anat.err" > "$work/anat.full"; then
 		report "$tag:equivalence" FAIL "native runner error: $(grep -v '^\s*$' "$work/anat.err" | tail -1)"
 		return
 	fi
+	digests < "$work/anat.full" > "$work/anat.txt"
 	if ! "$nat/run-wbx" "$gst/core.wbx" "$wd" --frames "$frames" 2>"$work/abox.err" | digests > "$work/abox.txt"; then
 		report "$tag:equivalence" FAIL "waterbox runner error: $(grep -v '^\s*$' "$work/abox.err" | tail -1)"
 		return
@@ -178,6 +179,33 @@ arcade_legs() {
 		return
 	fi
 	report "$tag:equivalence" PASS "$(basename "$image"), $frames frames, native == waterboxed"
+
+	# the sound's rate: a board's sound chip runs on the board's clock, so a
+	# System 256 mixes 64000 samples a second and a Super 256 72000, and the
+	# package has to say so for that machine. Played at the console's 48000, a
+	# third to a half of the sound was too much (chimera#226).
+	local sound
+	if sound="$(python3 - "$here/waterbox.config" "$machine" "$work/anat.full" <<'PY'
+import json, re, sys
+config, machine, run = sys.argv[1:4]
+c = json.load(open(config))
+rate = c["audio"]["rate"]
+for m in c.get("machines", []):
+    if machine in m.get("when", []):
+        rate = m.get("audioRate", rate)
+out = open(run).read()
+frames = int(re.search(r"^frames=(\d+)", out, re.M).group(1))
+num, den = map(int, re.search(r"^vsync=(\d+)/(\d+)", out, re.M).groups())
+samples = int(re.search(r"^audioSamples=(\d+)", out, re.M).group(1))
+expected = rate * den * frames / num
+print("%d samples in %d frames, %.0f a second; the package says %d" % (samples, frames, samples * num / den / frames, rate))
+sys.exit(0 if abs(samples - expected) <= expected * 0.02 else 1)
+PY
+)"; then
+		report "$tag:audio-rate" PASS "$sound"
+	else
+		report "$tag:audio-rate" FAIL "$sound"
+	fi
 
 	"$nat/run-native" "$wd" --frames $((frames / 2)) 2>/dev/null | digests > "$work/ahalf.txt"
 	if cmp -s "$work/anat.txt" "$work/ahalf.txt"; then

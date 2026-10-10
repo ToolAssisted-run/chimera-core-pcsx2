@@ -279,6 +279,7 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 		frames = sol.count;
 
 	uint64_t vh = 0, ah = 0;
+	long long audioSamples = 0;
 	/* the second half of the run, hashed separately: see the turbo hook. The
 	 * settle window is for a machine whose picture is built from more than
 	 * one frame - an interlaced display weaves two fields - where the first
@@ -376,6 +377,7 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 			th = gate_fnv(th, video, (size_t)w * h * 4);
 		}
 		ah = gate_fnv(ah, audio, (size_t)n * 2 * sizeof(int16_t));
+		audioSamples += n;
 		if (!c->input_was_read())
 			lag++;
 		if (o->screenshotPath && f == frames - 1)
@@ -409,6 +411,9 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 	printf("videoHash=%016llx\n", (unsigned long long)vh);
 	printf("tailVideoHash=%016llx\n", (unsigned long long)th);
 	printf("audioHash=%016llx\n", (unsigned long long)ah);
+	/* how many sample pairs the run produced: the sound chip mixes at 48 kHz
+	 * on every machine, so this over the frames is 48000 over the frame rate */
+	printf("audioSamples=%lld\n", audioSamples);
 	printf("lagFrames=%ld\n", lag);
 	int nd = c->domain_count();
 	for (int i = 0; i < nd; i++)

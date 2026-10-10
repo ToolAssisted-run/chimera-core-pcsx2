@@ -945,4 +945,22 @@ straight to the browser. Guest and native produce the same kilobyte.
   `<board>:test-button` holds it and requires another machine than idle and
   than a coin, the same in both flavors; with the button unwired the run is
   the idle one.
-
+- **The two faster boards state their own sound rate** (2026-10-10,
+  chimera#226). Reported as sound problems in Time Crisis 4 and Tekken 5
+  Dark Resurrection. A System 256 runs every clock a third faster than a
+  PlayStation 2 and a Super 256 a half faster, and the sound chip counts its
+  samples on that clock: 49.152 MHz over 768 is 64000 samples a second,
+  55.296 MHz over 768 is 72000. The fork says the same (its console sample
+  rate is the clock over 768). The package said 48000 for every machine, so
+  Chimera played a third to a half too many samples at the console's rate.
+  Measured over 600 frames of Super Dragon Ball Z: 637952 samples on a
+  System 256 and 717760 on a Super 256, where 48000 a second is 480480. The
+  game agrees with the chip's rate: started with a coin it programs voice
+  pitches 0x0C00 and 0x0480, which are 48000 Hz and 18000 Hz at 64000 and
+  would be 36000 Hz and 13500 Hz at 48000. The fix is in the declarations:
+  `"audioRate": 64000` and `72000` in the two machines' entries, a
+  declaration Chimera has from commit 2385e5e. An older Chimera ignores it
+  and plays those boards as before. The test program prints
+  `audioSamples`, and `<board>:audio-rate` checks it against the rate the
+  package states for that machine, within 2 percent. Not tested: the two
+  games of the report, which are not on the test machine.
