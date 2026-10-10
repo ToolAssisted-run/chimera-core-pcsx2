@@ -144,6 +144,13 @@ native_ram() {
 	head -c "$SLICE" "$work/native.$tag.ram.full" > "$work/native.$tag.ram.bin"
 }
 
+# the IOP's memory after the same native run, as a hash
+native_iop() {
+	"$rn" "$work/native.$1" --frames "$frames" --dump-domain "IOP RAM" "$work/native.$1.iop.bin" \
+		> /dev/null 2>&1 || return 1
+	sha1sum < "$work/native.$1.iop.bin" | cut -d' ' -f1
+}
+
 settings_config() { python3 "$here/settings-config.py" "$config" "$1" "$2" "$3"; }
 
 # --- the machine the frontend builds must be the one the gate signed off on ---
@@ -190,9 +197,44 @@ else
 	if [ -z "$base_iop" ] || [ -z "$rtc_iop" ]; then
 		report "settings:clock" FAIL "no IOP hash in the metadata"
 	elif [ "$base_iop" = "$rtc_iop" ]; then
-		report "settings:clock" FAIL "the clock setting never reached the machine"
+		# Before blaming the frontend, ask the native runner the same question:
+		# a disc whose first frames never read the clock leaves the IOP's memory
+		# the same with any date, and then there is nothing here to compare.
+		if [ "$(native_iop base)" = "$(native_iop rtc)" ]; then
+			report "settings:clock" SKIP "$(basename "$disc") does not read the clock in $frames frames: the IOP's memory is the same natively too. Use a disc that does"
+		else
+			report "settings:clock" FAIL "the clock setting never reached the machine"
+		fi
 	else
 		report "settings:clock" PASS "rtc_year=7 matches its native reference and changes the IOP's memory"
+	fi
+fi
+
+# --- a project that names no Boot ROM starts on the console's own default ----
+# A setting left alone takes the package's default, and for the Boot ROM the
+# value also decides which bios file the frontend asks for and mounts. The
+# package declares the Boot ROM twice, once for the console and once for the
+# arcade boards. From 2026-09-20 to 2026-10-10 a PlayStation 2 that named none
+# was given the arcade boards' default: no bios was mounted and nothing
+# started (pull request 1). Every other check here names its Boot ROM, which
+# is how that went unseen; this one names none. It can only run when the bios
+# found is the dump the console's default asks for.
+default_bios="$(python3 -c "
+import json, sys
+for s in json.load(open(sys.argv[1]))['settings']:
+    if s.get('name') == 'bios':
+        print(s.get('default', '')); break
+" "$wb/waterbox.config")"
+if [ "$bios_choice" != "$default_bios" ]; then
+	report "bios:default" SKIP "the bios found is $bios_choice; this needs the console's default, $default_bios"
+else
+	settings_config "$work/config.nobios.ini" '{"fast_boot": true}' "$firmware_json"
+	if ! run_frontend "nobios" "$work/config.nobios.ini" "$frames"; then
+		report "bios:default" FAIL "with no Boot ROM named the machine did not start (see tests/work/nobios.log)"
+	elif ! cmp -s "$work/native.base.ram.bin" "$work/nobios.ram.bin"; then
+		report "bios:default" FAIL "EE RAM differs from the run that names the same Boot ROM"
+	else
+		report "bios:default" PASS "no Boot ROM named: the console's default, $default_bios, was asked for and mounted"
 	fi
 fi
 
