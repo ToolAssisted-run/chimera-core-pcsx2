@@ -28,3 +28,31 @@ index f246bb5..23d0f38 100644
  	{
  		buf = BufferStorageStreamBuffer::Create(target, size);
  		if (buf)
+diff --git a/pcsx2/GS/Renderers/OpenGL/GSTextureOGL.cpp b/pcsx2/GS/Renderers/OpenGL/GSTextureOGL.cpp
+index ff555e5af..96b211be6 100644
+--- a/pcsx2/GS/Renderers/OpenGL/GSTextureOGL.cpp
++++ b/pcsx2/GS/Renderers/OpenGL/GSTextureOGL.cpp
+@@ -13,6 +13,9 @@
+ #include "common/AlignedMalloc.h"
+ #include "common/StringUtil.h"
+ 
++// chimera: waterbox/gl-bridged.cpp - true only when a host GPU is driving
++extern "C" bool chimera_gl_bridged();
++
+ // Looking across a range of GPUs, the optimal copy alignment for Vulkan drivers seems
+ // to be between 1 (AMD/NV) and 64 (Intel). So, we'll go with 64 here.
+ static constexpr u32 TEXTURE_UPLOAD_ALIGNMENT = 64;
+@@ -371,7 +374,12 @@ std::unique_ptr<GSDownloadTextureOGL> GSDownloadTextureOGL::Create(u32 width, u3
+ {
+ 	const u32 buffer_size = GetBufferSize(width, height, format, TEXTURE_UPLOAD_PITCH_ALIGNMENT);
+ 
+-	const bool use_buffer_storage = (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage) &&
++	// chimera: not when the GPU is on the other side of a sandbox wall - the
++	// persistent map below is a pointer into the DRIVER's memory, which a
++	// sandboxed guest cannot read (as in GLStreamBuffer.cpp). glReadPixels into
++	// the core's own buffer is the shape that crosses it.
++	const bool use_buffer_storage = !chimera_gl_bridged() &&
++	                                (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage) &&
+ 	                                !GSDeviceOGL::GetInstance()->IsDownloadPBODisabled();
+ 	if (use_buffer_storage)
+ 	{
