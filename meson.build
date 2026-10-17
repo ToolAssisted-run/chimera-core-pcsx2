@@ -63,6 +63,13 @@ defs = [
   '-include', 'chimera-shim.h',
   '-Wno-deprecated-declarations',
   '-Wno-unused-variable',
+  # PCSX2 is written for a compiler that lets any pointer reach any memory,
+  # and its own build says so (pcsx2/CMakeLists.txt). Without this GCC may
+  # drop a store made through the wrong type: a 16-bit write to a hardware
+  # register is merged into a u32 through a u16 pointer (_hwWrite16), and the
+  # register got the old word back. Klonoa 2 sets VIF1's TTE that way, and
+  # without it its first movie frame stalled VIF1 for good.
+  '-fno-strict-aliasing',
   # PCSX2 refuses to compile below SSE 4.1, and the emulation itself uses those
   # instructions: both flavors get the same ones, so both compute the same way.
   '-msse4.1',
