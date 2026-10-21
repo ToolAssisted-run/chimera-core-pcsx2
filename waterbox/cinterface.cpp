@@ -22,11 +22,11 @@
  *   normally drains whenever it likes. Here the frame drains it
  *   (waterbox/audio-stream.cpp), so a frame's samples belong to that frame.
  *
- *   NO RECOMPILERS. The EE, the IOP and both vector units interpret, and the
- *   software rasteriser takes its C++ path. That is what makes this core
- *   possible inside a sandbox at all, and it is also what makes it slow;
- *   whether the recompilers can follow is the next question this port has to
- *   answer (docs/PLAN.md).
+ *   THE CPUS ARE A SETTING. The EE, the IOP and both vector units run on
+ *   PCSX2's recompilers or its interpreters (cpu_core); the software
+ *   rasteriser takes its C++ path either way. On aarch64 there are no
+ *   recompilers - upstream has none for arm64 - so that package interprets
+ *   and refuses a project that asks for them (CpuCoreSetting).
  *
  * This file compiles IDENTICALLY for the guest (miniBox emulibc) and for the
  * native reference build (native-shim/emulibc.h), which is what makes the
@@ -96,6 +96,24 @@
 #define MAX_SAMPLES 4096
 
 static char g_loadError[512];
+
+/* Which CPU implementations the project asked for (the cpu_core setting), or
+ * the package's default. A build without recompilers (CHIMERA_NO_RECOMPILERS:
+ * aarch64, see meson.build) declares only the interpreters and defaults to
+ * them; asked for the recompilers anyway, it refuses the machine (Init) rather
+ * than run another one than the project names. */
+#ifdef CHIMERA_NO_RECOMPILERS
+static const bool kHaveRecompilers = false;
+#else
+static const bool kHaveRecompilers = true;
+#endif
+static bool CpuCoreIsRecompiler(void)
+{
+	char cpuCore[24];
+	snprintf(cpuCore, sizeof(cpuCore), "%s", kHaveRecompilers ? "recompiler" : "interpreter");
+	wbx_setting_str("cpu_core", cpuCore, sizeof(cpuCore));
+	return strcmp(cpuCore, "recompiler") == 0;
+}
 ECL_INVISIBLE static uint32_t g_video[MAX_WIDTH * MAX_HEIGHT];
 static int g_videoWidth = 640;
 static int g_videoHeight = 448;
@@ -828,9 +846,7 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	 * the vtlb like the interpreters do, and their self-modifying-code
 	 * detection runs fault-free (see the manual-protection patch). */
 	{
-		char cpuCore[24] = "recompiler";
-		wbx_setting_str("cpu_core", cpuCore, sizeof(cpuCore));
-		const bool recs = strcmp(cpuCore, "recompiler") == 0;
+		const bool recs = CpuCoreIsRecompiler();
 		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableEE", recs);
 		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableIOP", recs);
 		si.SetBoolValue("EmuCore/CPU/Recompiler", "EnableVU0", recs);
@@ -1516,9 +1532,14 @@ ECL_EXPORT int Init(void)
 	 * gets allocated have to be made here, by hand, or the sandbox is asked for
 	 * four gigabytes of fastmem it does not have. */
 	{
-		char cpuCore[24] = "recompiler";
-		wbx_setting_str("cpu_core", cpuCore, sizeof(cpuCore));
-		const bool recs = strcmp(cpuCore, "recompiler") == 0;
+		const bool recs = CpuCoreIsRecompiler();
+		if (recs && !kHaveRecompilers)
+		{
+			snprintf(g_loadError, sizeof(g_loadError),
+				"the project asks for the recompilers (cpu_core), and this package has none: "
+				"PCSX2 has no recompilers for this CPU, only its interpreters");
+			return 0;
+		}
 		EmuConfig.Cpu.Recompiler.EnableFastmem = false;
 		EmuConfig.Cpu.Recompiler.EnableEE = recs;
 		EmuConfig.Cpu.Recompiler.EnableIOP = recs;

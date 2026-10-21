@@ -3,7 +3,8 @@
 This repository builds PCSX2 (PlayStation 2, and the NAMCO System 246, 256
 and Super 256 arcade boards) as a sandboxed guest for Chimera, a frontend for
 tool-assisted speedruns. It produces one file, `pcsx2.chimeraCore`, which
-Chimera loads from its `Cores` folder. The same sources are also built
+Chimera loads from its `Cores` folder (a release names it
+`pcsx2-<version>-<x64|arm64>.chimeraCore`; most users want the x64 one). The same sources are also built
 natively as a reference, and the gate holds the two byte-identical.
 `.github/workflows/chimera.yml` is the authoritative build recipe;
 `docs/BUILDING.md` explains it step by step.
@@ -12,7 +13,7 @@ natively as a reference, and the gate holds the two byte-identical.
 
 - `extern/pcsx2` - upstream PCSX2, a pinned submodule. Never edited in place.
 - `extern/zlib`, `extern/zstd`, `extern/lz4` - pinned submodules the core links.
-- `patches/` - 26 numbered patch files applied to `extern/pcsx2`.
+- `patches/` - 32 numbered patch files applied to `extern/pcsx2`.
 - `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `jit_rasterizer`).
 - `waterbox/sources.sh` - the curated list of upstream sources both flavors compile.
 - `waterbox/cinterface.cpp`, `host.cpp`, `host-sys.cpp`, `gs-device.cpp`, `audio-stream.cpp`, `stubs/` - the adapter between PCSX2 and the guest ABI.
@@ -21,11 +22,30 @@ natively as a reference, and the gate holds the two byte-identical.
 - `waterbox/gl-osmesa.cpp`, `gl-bridged.cpp`, `gl-host.c`, `gl-entry-points.txt` - OpenGL in the sandbox, and the GPU bridge's guest and host halves.
 - `waterbox/run-native.c`, `run-wbx.c`, `gate-harness.h` - the native reference and the sandbox driver.
 - `waterbox/apply-patches.sh`, `setup-mesa.sh`, `setup-guest.sh`, `build-package.sh`, `run-gate.sh` - the build and the core gate.
+- `waterbox/check-portable.sh` - run on every guest link (a meson target). On
+  aarch64, everything built here must leave register x18 alone (`-ffixed-x18`
+  in `setup-guest.sh` and `setup-mesa.sh`): Windows keeps the TEB there and
+  macOS clears it, so code using it ties the package to Linux. It also lists
+  what the guest kit (now libgcc only) still does with x18, without failing
+  on it. The linked image must not reach TPIDR_EL0 at all: miniBox keeps an
+  aarch64 guest's thread pointer in memory, and an aarch64 link is finished
+  by its `wbx-tp-rewrite.py` (`core-linked.wbx` -> `core.wbx`), which points the
+  compiler's reads at it. On x86-64 it has nothing to check.
 - `waterbox/waterbox.config`, `file_slots.json`, `default_keybinds.json`, `package-licenses.json` - what the package declares to Chimera.
 - `waterbox/tests/` - the frontend gate (`run-frontend.sh`) and its helpers.
 - `tests/own/` - redistributable test content (tracked). `tests/roms/` - your own bios and discs, ignored wholesale.
 - `docs/PLAN.md` - the design log: decisions, measurements, sharp edges.
 - `build/` - every build output. Ignored by git.
+
+## Two CPUs
+
+A package is machine code for the CPU it is built on: x86-64, or aarch64 on
+miniBox's aarch64 machine (the aarch64 forks of Chimera and miniBox:
+`P-AS/chimera`, branch `aarch64`). Every CPU choice in the build names both
+and refuses any other. On aarch64 PCSX2 has no recompilers, so that core
+interprets, generates no code at all (`CHIMERA_NO_CODE_GENERATORS`, patch
+0031) and refuses a project asking for the recompilers; `docs/BUILDING.md`
+says what else differs.
 
 ## Set up the build environment
 

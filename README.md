@@ -21,15 +21,24 @@ included: a game gets the corrections PCSX2 gives it, and a package pins them.
 Cheats and the patches a person chooses (widescreen, no-interlacing) are not
 applied.
 
+It is built for x86-64 and for aarch64 (on the aarch64 forks of Chimera and
+miniBox), one package per CPU. PCSX2 has no recompilers for arm64, so the
+aarch64 package has its interpreters alone.
+
 ## Using it in Chimera
 
-Chimera ships no cores and downloads nothing. Download the `.chimeraCore`
-package from this repository's
+Chimera ships no cores and downloads nothing. Download the core's package
+from this repository's
 [Releases](https://github.com/ToolAssisted-run/chimera-core-pcsx2/releases)
 page, or build it, and put it in the `Cores` folder beside `Chimera.exe`;
-File > Core Manager lists what is there. The same file runs on Linux and on
-Windows. The games are yours to provide, and so is the bios: a copy of your
-own console's, or OpenPS2BIOS 0.2
+File > Core Manager lists what is there.
+
+Each release has two packages, one per CPU: `pcsx2-<version>-x64.chimeraCore`
+and `pcsx2-<version>-arm64.chimeraCore`. **You most likely want the x64 one.**
+Take the arm64 one only if you know you are using an arm64 device. Put only one
+of them in the `Cores` folder. The same file runs on Linux and on Windows. The
+games are yours to provide, and so is the bios: a copy of your own console's,
+or OpenPS2BIOS 0.2
 ([download](https://github.com/TamaribaEmu/OpenPS2BIOS/releases/tag/v0.2),
 Boot ROM setting "OpenPS2BIOS 0.2"), which is free but does less, so a game
 may not run on it.

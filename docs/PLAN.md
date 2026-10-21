@@ -169,6 +169,53 @@ pad driver - and the count stops growing the moment it has.
   `force32` beside nearest, fxaa and 2x (one machine, six pictures); with the
   assignment taken out, `off` drew the default's picture. `scaled` differs
   from the default only above 1x and is not in the leg.
+- **2026-10-09** aarch64: the core builds and runs on miniBox's aarch64
+  machine, as chimera-core-srb2 did before it (on the aarch64 forks of Chimera
+  and miniBox, `P-AS/chimera` branch `aarch64`).
+  - *What upstream has.* PCSX2 at this pin builds for arm64: NEON GSVectors,
+    an arm64 scanline JIT and VIF unpacker written against vixl, and no EE,
+    IOP or VU recompiler - its arm64 build interprets (`VMManager.cpp`'s
+    "TODO(Stenzek): Remove me once EE/VU/IOP recs are added").
+  - *What this build takes of it.* The interpreters, and no code generator at
+    all (`CHIMERA_NO_CODE_GENERATORS`, patch 0031). The VIF "interpreter" is
+    not one: `_nVifUnpackLoop` calls unpackers `VifUnpackSSE_Init` GENERATES at
+    startup for every MODE-0 unpack, on x86-64 (where this guest runs them)
+    and on arm64 alike. Upstream's C unpacks beside them already carry a
+    MODE-0 set, with and without the mask, so they take every unpack here.
+    The scanline JIT's function maps go too, or GSDrawScanline instantiates
+    the generators whether it calls them or not. So vixl is not in the guest:
+    it reads the CPU's ID registers, which no OS has to let a guest read.
+  - *cpu_core.* The aarch64 package declares the interpreters alone
+    (`build-package.sh` rewrites its `waterbox.config`), the core's default
+    there is the interpreter, and a project asking for the recompilers is
+    refused rather than run on the other machine (`cinterface.cpp`, gate
+    check `cpu:cores`, with a negative control: the refusal taken out, the
+    check fails).
+  - *Pages.* Upstream assumes 16 KiB pages on arm64 and refuses a host where
+    they are not; its CMake asks Linux. Here the machine's page is miniBox's,
+    4 KiB on every host, so both flavors name it (`OVERRIDE_HOST_PAGE_SIZE`,
+    and a 64-byte cache line, as upstream's Windows on ARM build does). Only
+    fastmem and the recompilers protect pages, and neither is here, so the
+    native reference on a 16 KiB host takes 4 KiB as well.
+  - *Arithmetic and x18.* As in srb2: `-ffp-contract=off -fsigned-char` for
+    both flavors (PCSX2 assumes a signed char; Linux's arm64 ABI has it
+    unsigned, Apple's signed), and `-ffixed-x18` for the guest and its Mesa,
+    held by `waterbox/check-portable.sh` on every guest link. Negative
+    control: run over the native build's objects it fails on lz4 and others.
+  - *The thread pointer.* miniBox's aarch64 machine keeps it in a word of
+    memory, not TPIDR_EL0, which macOS overwrites at every context switch;
+    `core.wbx` is `core-linked.wbx` rewritten by miniBox's
+    `wbx-tp-rewrite.py` (7015 reads in the image CI built from c43dbae), and
+    `check-portable.sh` fails an image that still reaches the register.
+  - *Measured* on Asahi Linux (Apple M1, 16 KiB pages), without a bios: the
+    gate's six content-free checks pass (`keybinds`, `arcade:panel-words`,
+    `nobios:refuses`, `cpu:cores`, `gamedb:loaded`, `gamedb:entry`), so both
+    flavors start, the guest runs in the sandbox and refuses alike; the
+    package builds and passes Chimera's contract tests (12). NOTHING with a
+    bios has run on aarch64: no EE instruction, no VIF unpack, no picture.
+    The C VIF path in particular is new to this core and is unproven until a
+    bios and a disc gate it.
+
 - **2026-10-09** The frames after a load are the pictures they were (chimera
   issue 190; `waterbox/gs-shadow.cpp`, patch 0026). Measured on a GTX 1060,
   Street Fighter EX3's 3D intro at frame 3600: the first frame after a load

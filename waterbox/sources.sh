@@ -26,8 +26,11 @@
 #                                                 answering it both run INSIDE
 #                                                 the sandbox (gl-osmesa.cpp)
 #   x86/                                          the EE, IOP and VU
-#                                                 recompilers: this core
-#                                                 interprets (docs/PLAN.md)
+#                                                 recompilers, on x86-64 only:
+#                                                 upstream has none for arm64,
+#                                                 and an aarch64 build carries
+#                                                 no code generator at all
+#                                                 (meson.build, patch 0031)
 #   MTVU.cpp                                      a second CPU thread
 #   ImGui/, Input/, PAD/, DEV9/                   a frontend already exists,
 #   Achievements*, Recording/, Debug*             and a sandbox has no sockets
@@ -42,11 +45,19 @@
 # Prints paths relative to the repository root, one per line.
 #
 # Usage: sources.sh [main|deps]
+#   CHIMERA_CPU   the CPU the build is for (meson.build sets it); default this
+#                 machine's
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 p="extern/pcsx2"
 cd "$root"
+
+cpu="${CHIMERA_CPU:-$(uname -m)}"
+case "$cpu" in
+	x86_64|aarch64) ;;
+	*) echo "sources.sh: miniBox runs on x86-64 and aarch64 only, not $cpu" >&2; exit 1 ;;
+esac
 
 # The machine: the EE and its interpreter, the IOP, the vector units, memory,
 # counters, timers, the DMA controllers, the GIF and VIF, the IPU, the CDVD
@@ -88,7 +99,15 @@ core_srcs() {
 	find "$p/pcsx2/USB" -maxdepth 1 -name '*.cpp'
 	find "$p/pcsx2/USB/qemu-usb" -name '*.cpp' | grep -v -e "/hid.cpp" -e "input-keymap"
 	echo "$p/pcsx2/USB/usb-lightgun/guncon2.cpp"
-	find "$p/pcsx2/x86" -name '*.cpp'
+	# The recompilers, where there are any (see the disassembler above). On
+	# aarch64 upstream has none: its opcode tables name the interpreters
+	# alone, and nothing in this build generates code (meson.build). What the
+	# machine still names of a recompiler there - the fastmem backpatcher -
+	# is upstream's own arm64 stub.
+	case "$cpu" in
+		x86_64) find "$p/pcsx2/x86" -name '*.cpp' ;;
+		aarch64) echo "$p/pcsx2/arm64/RecStubs.cpp" ;;
+	esac
 	# CDVD: the drive and every image reader (iso, chd, cso/zso), but not the
 	# HOST's optical drive - a sandbox has no such thing, and a movie cannot
 	# cite a disc that was in someone's tray.
@@ -112,8 +131,16 @@ gs_srcs() {
 	# function maps are members of GSDrawScanline either way. Compiling what you
 	# do not call leaves the JIT one define away, on the day the sandbox turns
 	# out to be able to host it.
-	find "$p/pcsx2/GS/Renderers/Common" "$p/pcsx2/GS/Renderers/SW" \
-		"$p/pcsx2/GS/Renderers/Null" -name '*.cpp' | grep -v -e "arm64"
+	# On aarch64 the generators are left out: they are written against vixl,
+	# and that build has no code generator at all (meson.build, patch 0031).
+	case "$cpu" in
+		x86_64)
+			find "$p/pcsx2/GS/Renderers/Common" "$p/pcsx2/GS/Renderers/SW" \
+				"$p/pcsx2/GS/Renderers/Null" -name '*.cpp' | grep -v -e "arm64" ;;
+		aarch64)
+			find "$p/pcsx2/GS/Renderers/Common" "$p/pcsx2/GS/Renderers/SW" \
+				"$p/pcsx2/GS/Renderers/Null" -name '*.cpp' | grep -v -e "CodeGenerator" ;;
+	esac
 
 	# The OpenGL renderer, when there is an OpenGL for it to call. Mesa's
 	# softpipe is compiled into the guest, so this is not a GPU: it is a second
@@ -157,7 +184,10 @@ common_srcs() {
 	# system and a guest has no system to take it from, which is why the game
 	# database arrives already flattened (waterbox/gen-gamedb.py).
 	# the x86 emitter, which the recompilers are written against
-	find "$p/common/emitter" -name '*.cpp'
+	case "$cpu" in
+		x86_64) find "$p/common/emitter" -name '*.cpp' ;;
+		aarch64) ;;
+	esac
 	find "$p/common" -maxdepth 1 -name '*.cpp' | grep -v \
 		-e "CocoaTools" -e "D3D" -e "Vulkan" -e "GL/" -e "Windows" \
 		-e "HTTPDownloader" -e "StackWalker" -e "CrashHandler" \

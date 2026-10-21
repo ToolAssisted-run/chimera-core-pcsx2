@@ -64,6 +64,38 @@ rm -rf "$staging"
 mkdir -p "$staging"
 cp "$root/build/meson-guest/core.wbx" "$staging/core.wbx"
 cp "$here/waterbox.config" "$staging/waterbox.config"
+# The CPU the core is built for, which is the CPU this builds on. A package is
+# machine code for one CPU: the x86-64 core has PCSX2's recompilers and the
+# interpreters; the aarch64 one has the interpreters alone (upstream has no
+# arm64 recompilers, and that build generates no code - meson.build), so its
+# declaration offers what it has and nothing it would refuse (cinterface.cpp).
+case "$(uname -m)" in
+x86_64) target_cpu=x86_64 ;;
+aarch64)
+	target_cpu=aarch64
+	python3 - "$staging/waterbox.config" <<'PYCPU'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+cores = [s for s in cfg["settings"] if s.get("name") == "cpu_core"]
+if len(cores) != 1 or "interpreter" not in cores[0]["options"]:
+    sys.exit("build-package.sh: waterbox.config has no cpu_core setting with the interpreters")
+cores[0]["options"] = ["interpreter"]
+cores[0]["default"] = "interpreter"
+cores[0]["description"] = (
+    "Which CPU implementations run the machine. This package is for aarch64, "
+    "where PCSX2 has no recompilers: its interpreters run the EE, the IOP and both "
+    "VUs (the slowest, most literal reading of every instruction). The x86-64 "
+    "package also offers the recompilers, and a movie made under one does not "
+    "replay under the other.")
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PYCPU
+	;;
+*) echo "build-package.sh: miniBox runs on x86-64 and aarch64 only, not $(uname -m)" >&2; exit 1 ;;
+esac
 cp "$here/default_keybinds.json" "$staging/default_keybinds.json"
 # The core-declared file form for the project wizard (slots, cardinality,
 # formats, tooltips) - the frontend renders it, this file decides it.
@@ -121,7 +153,7 @@ json.dump({
                "origin": git("config", "--get", "remote.origin.url", default=""),
                "dirty": "-dirty" in "$core_version"},
     "toolchain": {"compiler": "gcc $gccver", "binutils": "$binutils_version",
-                  "target": "x86_64-linux-musl", "musl": "$musl_version"},
+                  "target": "$target_cpu-linux-musl", "musl": "$musl_version"},
     "guestKit": {"name": "miniBox", "commit": "$guest_kit"},
     "upstream": {"name": "PCSX2", "pin": "$pcsx2_pin"},
     "builtOn": "$os_id",

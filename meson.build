@@ -70,19 +70,59 @@ defs = [
   # register got the old word back. Klonoa 2 sets VIF1's TTE that way, and
   # without it its first movie frame stalled VIF1 for good.
   '-fno-strict-aliasing',
-  # PCSX2 refuses to compile below SSE 4.1, and the emulation itself uses those
-  # instructions: both flavors get the same ones, so both compute the same way.
-  '-msse4.1',
-  # What PCSX2's build system sets to say which machine it is compiling FOR.
-  # Without it the processor-feature struct loses its members and the emitter's
-  # headers stop making sense.
-  '-D_M_X86',
   # What PCSX2's build system passes the GNU demangler, whose headers otherwise
   # redeclare basename() and collide with the C library's.
   '-DHAVE_DECL_BASENAME=1', '-DHAVE_LIMITS_H=1', '-DHAVE_STDLIB_H=1',
   '-DHAVE_STRING_H=1',
 
 ]
+
+# The CPU both flavors are built for, which is the CPU they run on: the guest
+# is miniBox's machine for this host's CPU, and the native reference is the
+# same sources for the same CPU. waterbox/sources.sh is told it too.
+cpu = host_machine.cpu_family()
+if cpu == 'x86_64'
+  defs += [
+    # PCSX2 refuses to compile below SSE 4.1, and the emulation itself uses
+    # those instructions: both flavors get the same ones, so both compute the
+    # same way.
+    '-msse4.1',
+    # What PCSX2's build system sets to say which machine it is compiling FOR.
+    # Without it the processor-feature struct loses its members and the
+    # emitter's headers stop making sense.
+    '-D_M_X86',
+  ]
+elif cpu == 'aarch64'
+  defs += [
+    # miniBox's aarch64 machine has 4 KiB pages whatever the host's are (16 KiB
+    # on Apple silicon, 64 KiB on some kernels), as x86-64 has, and upstream
+    # asks for the page and cache line sizes to be named when it cannot know
+    # them (its Windows on ARM build names these same two). Only fastmem and
+    # the recompilers protect pages, and neither is in this build, so the
+    # native reference takes the machine's page as well.
+    '-DOVERRIDE_HOST_PAGE_SIZE=0x1000',
+    '-DOVERRIDE_HOST_CACHE_LINE_SIZE=64',
+    # No code generator at all (patch 0031): upstream has no EE, IOP or VU
+    # recompiler for arm64 - its arm64 build interprets - and what it does
+    # generate there, the VIF unpackers and the scanline JIT, is written
+    # against vixl, which reads CPU ID registers no OS has to let a guest
+    # read. The VIF unpack takes upstream's C functions, the rasteriser its
+    # C++ path, and nothing in the guest is ever executed that was not linked.
+    '-DCHIMERA_NO_CODE_GENERATORS',
+    '-DCHIMERA_NO_RECOMPILERS',
+    # x86-64's arithmetic, as miniBox's aarch64 machine computes it: no fused
+    # multiply-add, and a signed char (PCSX2 is written for one - Apple's arm64
+    # ABI has it too, Linux's does not). The guest's cross file carries them
+    # as well; here they reach the native reference, or the equivalence gate
+    # would compare two different machines.
+    '-ffp-contract=off', '-fsigned-char',
+  ]
+  if get_option('jit_rasterizer')
+    error('-Djit_rasterizer=true: an aarch64 build has no code generators (patch 0031)')
+  endif
+else
+  error('miniBox runs on x86-64 and aarch64 only, not ' + cpu)
+endif
 
 if not get_option('jit_rasterizer')
   defs += '-DCHIMERA_NO_JIT_RASTERIZER'
@@ -161,6 +201,7 @@ add_project_arguments('-DCHIMERA_EMBEDDED_GAMEDB', language: ['c', 'cpp'])
 mesa = get_option('mesa_guest_dir')
 guest_gl = mesa != ''
 sources_env = environment()
+sources_env.set('CHIMERA_CPU', cpu)
 if guest_gl
   sources_env.set('CHIMERA_GUEST_MESA', mesa)
   add_project_arguments(['-DCHIMERA_GUEST_GL', '-DCHIMERA_EMBEDDED_SHADERS'],
@@ -230,10 +271,13 @@ if guest_gl
   # "-Dthread_local=": glslang keeps its allocator per thread. The guest has
   # one thread that compiles shaders and keeps no thread-local storage of its
   # own making, so the two variables are ordinary ones.
+  # "-include cstdint": this glslang names uint32_t in SPIRV/SpvBuilder.h
+  # without including <cstdint>, and from GCC 15 libstdc++'s other headers no
+  # longer bring it in.
   # (waterbox/generated is where the header every file here is given first lives)
   vk_libs += static_library('glslang', glslang_sources,
     include_directories: [inc_glslang, include_directories('waterbox/generated')],
-    cpp_args: ['-DENABLE_OPT=0', '-Dthread_local=', '-w'])
+    cpp_args: ['-DENABLE_OPT=0', '-Dthread_local=', '-include', 'cstdint', '-w'])
   vk_bridge = custom_target('vk-bridge',
     output: ['vk-bridge-guest.c', 'vk-bridge-ops.h', 'vk-bridge-host.inc'],
     # made again when miniBox's generator or its list changes: without this
@@ -312,7 +356,20 @@ if meson.is_cross_build()
       '-Wl,-u,pthread_mutexattr_destroy']
   endif
 
-  executable('core', core_sources + driver_sources + gl_sources,
+  # On aarch64, linked as core-linked.wbx and finished as core.wbx by
+  # miniBox's wbx-tp-rewrite.py: miniBox's aarch64 machine keeps the guest's
+  # thread pointer in a word of memory, not TPIDR_EL0 (where macOS writes the
+  # CPU number at every context switch; its MACHINE-SPEC, "aarch64"), and the
+  # script turns every read of the register the compiler emitted for a thread
+  # local into a read of that word. Its host refuses an aarch64 image that
+  # still reads the register. x86-64 has nothing to rewrite: there core.wbx
+  # is the link itself, as before, and any miniBox will do.
+  rewrite_tp = cpu == 'aarch64'
+  tp_rewrite = mbdir / 'source/guest/wbx-tp-rewrite.py'
+  if rewrite_tp and not import('fs').exists(tp_rewrite)
+    error('miniBox at ' + mbdir + ' predates the aarch64 thread-pointer slot (no source/guest/wbx-tp-rewrite.py): update it')
+  endif
+  core_linked = executable(rewrite_tp ? 'core-linked' : 'core', core_sources + driver_sources + gl_sources,
     name_suffix: 'wbx',
     include_directories: [inc, inc_glslang],
     link_with: [deps_lib] + vk_libs,
@@ -326,6 +383,30 @@ if meson.is_cross_build()
       mbuild / 'source/guest/cxxglue.c.o',
       mbuild / 'source/guest/emulibc.c.o',
       '-L' + sr / 'lib', '-lstdc++', '-lgcc', '-lgcc_eh', '-lc'])
+  core_wbx = core_linked
+  if rewrite_tp
+    core_wbx = custom_target('core.wbx',
+      input: core_linked,
+      output: 'core.wbx',
+      command: [find_program('python3'), tp_rewrite, '@INPUT@', '@OUTPUT@'],
+      build_by_default: true)
+  endif
+
+  # On every link: is this core machine code for its CPU and not for one OS?
+  # On aarch64 that means x18 left alone (-ffixed-x18 in setup-guest.sh and
+  # setup-mesa.sh) and no system calls or system registers of its own, in
+  # everything built here - this build tree and the guest Mesa. On x86-64 it
+  # has nothing to check. waterbox/check-portable.sh says why.
+  portable_inputs = [meson.current_build_dir()]
+  if guest_gl
+    portable_inputs += mesa / 'build-guest2'
+  endif
+  custom_target('check-portable',
+    input: core_wbx,
+    output: 'core.wbx.portable',
+    command: [sh, '-c', 'wbx="$1"; stamp="$2"; shift 2; sh "$0" "$wbx" "$@" && : > "$stamp"',
+      files('waterbox/check-portable.sh'), '@INPUT@', '@OUTPUT@'] + portable_inputs,
+    build_by_default: true)
 else
   # ---- the native reference and the sandbox driver --------------------------
   threads = dependency('threads')

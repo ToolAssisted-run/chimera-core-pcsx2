@@ -330,6 +330,42 @@ else
 	report "nobios:refuses" PASS "both flavors refuse, and say why"
 fi
 
+# ---- the cpu cores a package has -------------------------------------------
+# cpu_core picks the recompilers or the interpreters, and they are different
+# machines. The x86-64 package has both. The aarch64 one has the interpreters
+# alone - upstream has no arm64 recompilers, and that build generates no code
+# (meson.build) - so a project asking it for the recompilers must be refused,
+# in both flavors, rather than quietly run the other machine under a movie
+# that cites this one. Needs no content: the refusal comes before the bios.
+# On x86-64 the same project gets past it to the bios refusal.
+rec_dir="$work/recompiler"
+mkdir -p "$rec_dir"
+printf '{"cpu_core":"recompiler"}' > "$rec_dir/settings"
+rec_nat="$("$nat/run-native" "$rec_dir" --frames 1 2>&1)"
+rec_nat_rc=$?
+rec_box="$("$nat/run-wbx" "$gst/core.wbx" "$rec_dir" --frames 1 2>&1)"
+rec_box_rc=$?
+case "$(uname -m)" in
+	aarch64)
+		if [ "$rec_nat_rc" -eq 0 ] || [ "$rec_box_rc" -eq 0 ]; then
+			report "cpu:cores" FAIL "a build without recompilers started a machine that asked for them"
+		elif ! grep -q "has none" <<< "$rec_nat" || ! grep -q "has none" <<< "$rec_box"; then
+			report "cpu:cores" FAIL "asked for the recompilers, the refusal does not say this package has none"
+		else
+			report "cpu:cores" PASS "no recompilers on aarch64: both flavors refuse a project that asks for them"
+		fi ;;
+	x86_64)
+		if grep -q "has none" <<< "$rec_nat$rec_box"; then
+			report "cpu:cores" FAIL "the x86-64 build refused its own recompilers"
+		elif ! grep -qi "bios" <<< "$rec_nat" || ! grep -qi "bios" <<< "$rec_box"; then
+			report "cpu:cores" FAIL "asked for the recompilers, a flavor did not reach the bios refusal"
+		else
+			report "cpu:cores" PASS "the recompilers are there: both flavors reach the bios refusal"
+		fi ;;
+	*)
+		report "cpu:cores" FAIL "miniBox runs on x86-64 and aarch64 only, not $(uname -m)" ;;
+esac
+
 # ---- the per-title database ------------------------------------------------
 # PCSX2 keeps what it knows about individual games in GameIndex.yaml - clamp
 # modes, round modes, game fixes, GS hardware fixes - and upstream OPENS that
@@ -506,20 +542,28 @@ fi
 # buffer onto another texel for texel took its neighbour's bits: Black drew a
 # white haze over everything far away (chimera issue 257). The core says once,
 # from inside the GS, which rounding it found and which it runs with; both
-# flavors must say the default (00001f80) for the GS and something else for
-# the thread, or the check has seen nothing.
+# flavors must say the default (MXCSR 00001f80 on x86-64, FPCR 00000000 on
+# aarch64) for the GS and something else for the thread, or the check has
+# seen nothing.
 wr="$work/bios-rounding"
 mkdir -p "$wr"
 cp "$bios" "$wr/bios.bin"
 printf '{"verbose":true}' > "$wr/settings"
 fp_nat="$("$nat/run-native" "$wr" --frames 60 2>&1 | plain | sed -n 's/.*the GS runs with floating point control \([0-9a-f]*\); the thread it runs on had \([0-9a-f]*\).*/\1 \2/p' | head -1)"
 fp_box="$("$nat/run-wbx" "$gst/core.wbx" "$wr" --frames 60 2>&1 | plain | sed -n 's/.*the GS runs with floating point control \([0-9a-f]*\); the thread it runs on had \([0-9a-f]*\).*/\1 \2/p' | head -1)"
-if [ -z "$fp_nat" ] || [ -z "$fp_box" ]; then
+case "$(uname -m)" in
+	aarch64) fp_default=00000000 ;;
+	x86_64) fp_default=00001f80 ;;
+	*) fp_default="" ;;
+esac
+if [ -z "$fp_default" ]; then
+	report "gs:rounding" FAIL "miniBox runs on x86-64 and aarch64 only, not $(uname -m)"
+elif [ -z "$fp_nat" ] || [ -z "$fp_box" ]; then
 	report "gs:rounding" FAIL "the core did not say which rounding the GS runs with (native [$fp_nat] sandbox [$fp_box])"
-elif [ "${fp_nat%% *}" = 00001f80 ] && [ "${fp_box%% *}" = 00001f80 ] && [ "${fp_nat##* }" != 00001f80 ] && [ "$fp_nat" = "$fp_box" ]; then
+elif [ "${fp_nat%% *}" = "$fp_default" ] && [ "${fp_box%% *}" = "$fp_default" ] && [ "${fp_nat##* }" != "$fp_default" ] && [ "$fp_nat" = "$fp_box" ]; then
 	report "gs:rounding" PASS "the GS runs with the default rounding (${fp_nat%% *}) on a thread that had the console's (${fp_nat##* }), in both flavors"
 else
-	report "gs:rounding" FAIL "the GS runs with [$fp_nat] natively and [$fp_box] in the sandbox (wanted 00001f80, on a thread with another)"
+	report "gs:rounding" FAIL "the GS runs with [$fp_nat] natively and [$fp_box] in the sandbox (wanted $fp_default, on a thread with another)"
 fi
 
 # A patch from the database reaches the console's memory. The core is asked
@@ -547,7 +591,9 @@ fi
 
 # The OTHER cpu core: every leg above ran the recompilers (the default), so
 # the interpreters get their own pair - a different machine the movie can
-# cite, held equal across flavors and lossless under rerecord.
+# cite, held equal across flavors and lossless under rerecord. (On aarch64 the
+# interpreters are the default and the only cores, so this pair runs them
+# again.)
 wi="$work/bios-int"
 mkdir -p "$wi"
 cp "$bios" "$wi/bios.bin"
