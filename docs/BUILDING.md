@@ -149,7 +149,7 @@ directories in an `actions/cache@v4` cache; on your machine they simply stay.
 
 ### Patches
 
-`extern/pcsx2` is pinned to pristine upstream. The 30 numbered patch files in
+`extern/pcsx2` is pinned to pristine upstream. The 31 numbered patch files in
 `patches/` (two of them share the number 0011) are applied to it by
 `waterbox/apply-patches.sh`, in file-name order. There is no separate step:
 `meson.build` runs the script at configure time, so both
@@ -163,7 +163,7 @@ The script judges the series as a whole:
 - If the working tree is pristine it applies the series and prints
   `applied: <patch>` for each.
 - If the working tree is exactly what the series leaves behind it prints
-  `already applied: all 30 patches` and changes nothing.
+  `already applied: all 31 patches` and changes nothing.
 - Anything in between is an error that names the files and prints the reset
   command.
 

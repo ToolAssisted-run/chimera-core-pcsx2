@@ -12,7 +12,7 @@ natively as a reference, and the gate holds the two byte-identical.
 
 - `extern/pcsx2` - upstream PCSX2, a pinned submodule. Never edited in place.
 - `extern/zlib`, `extern/zstd`, `extern/lz4` - pinned submodules the core links.
-- `patches/` - 26 numbered patch files applied to `extern/pcsx2`.
+- `patches/` - 31 numbered patch files applied to `extern/pcsx2`.
 - `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `jit_rasterizer`).
 - `waterbox/sources.sh` - the curated list of upstream sources both flavors compile.
 - `waterbox/cinterface.cpp`, `host.cpp`, `host-sys.cpp`, `gs-device.cpp`, `audio-stream.cpp`, `stubs/` - the adapter between PCSX2 and the guest ABI.
