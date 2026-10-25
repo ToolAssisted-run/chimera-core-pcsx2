@@ -185,6 +185,14 @@ gamedb_cpp = custom_target('chimera-gamedb',
   command: [find_program('python3'), files('waterbox/gen-gamedb.py'),
     meson.current_source_dir() / fc / 'bin/resources/GameIndex.yaml', '@OUTPUT@'])
 
+# PCSX2's patch collection, the files upstream ships as patches.zip, compiled
+# in the same way; each patch in it is a setting of the game's (chimera#371,
+# waterbox/gen-pnach.py says why)
+pnach_cpp = custom_target('chimera-pnach',
+  output: 'chimera-pnach.cpp',
+  command: [find_program('python3'), files('waterbox/gen-pnach.py'),
+    meson.current_source_dir() / 'extern/pcsx2_patches/patches', '@OUTPUT@'])
+
 # PCSX2 reads its GLSL out of a resources directory; a core has none, so the
 # shaders are compiled in (waterbox/gen-shaders.py says why).
 gl_sources = []
@@ -266,6 +274,8 @@ driver_sources = files(
 )
 # the per-title database, flattened out of the pinned submodule at build time
 driver_sources += gamedb_cpp
+# ...and the patch collection, out of its own
+driver_sources += pnach_cpp
 
 # The NAMCO board: the JVS I/O board, the ATA/ATAPI drive, the UART to a drive
 # board, the settings SRAM and the board RAM that make a PlayStation 2 into a

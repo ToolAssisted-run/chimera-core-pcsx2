@@ -1,0 +1,52 @@
+diff --git a/pcsx2/Patch.cpp b/pcsx2/Patch.cpp
+--- a/pcsx2/Patch.cpp
++++ b/pcsx2/Patch.cpp
+@@ -12,6 +12,9 @@
+ #include "common/ZipHelpers.h"
+ #else
+ #include "common/Console.h" // which the header above brought with it
++// Chimera: PCSX2's patch collection, compiled into the core
++// (waterbox/gen-pnach.py): the text of the file of that name, or nullptr.
++extern "C" const char* chimera_pnach_text(const char* name);
+ #endif
+ 
+ #include "Achievements.h"
+@@ -295,9 +298,10 @@
+ bool Patch::OpenPatchesZip()
+ {
+ #ifdef CHIMERA_EMBEDDED_GAMEDB
+-	// Chimera: a core's patches are the ones in its game database, which is
+-	// compiled into it. There is no patches.zip and no folder of patch files:
+-	// what a file said would not be part of the package a movie cites.
++	// Chimera: a core's patches are compiled into it - the game database's
++	// and PCSX2's patch collection (EnumeratePnachFiles). There is no
++	// patches.zip and no folder of patch files: what a file said would not be
++	// part of the package a movie cites.
+ 	return false;
+ #else
+ 	if (s_patches_zip)
+@@ -378,7 +382,23 @@
+ void Patch::EnumeratePnachFiles(const std::string_view serial, u32 crc, bool cheats, bool for_ui, const F& f)
+ {
+ #ifdef CHIMERA_EMBEDDED_GAMEDB
+-	// Chimera: no patch comes from a file (see OpenPatchesZip).
++	// Chimera: the patch collection upstream ships as patches.zip is compiled
++	// into the core (waterbox/gen-pnach.py, chimera#371), and looked up under
++	// the names upstream looks for in the zip: SERIAL_CRC.pnach, then
++	// CRC.pnach. No patch comes from a folder of files, and there are no
++	// cheats. Each group in it is applied only when its own setting is on
++	// (ReloadEnabledLists).
++	if (cheats)
++		return;
++	std::string name = GetPnachTemplate(serial, crc, true, false, false);
++	const char* text = chimera_pnach_text(name.c_str());
++	if (!text)
++	{
++		name = GetPnachTemplate(serial, crc, false, false, false);
++		text = chimera_pnach_text(name.c_str());
++	}
++	if (text)
++		f(std::move(name), std::string(text));
+ 	return;
+ #else
+ 	// Prefer files on disk over the zip.

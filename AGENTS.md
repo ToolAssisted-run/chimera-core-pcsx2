@@ -12,12 +12,13 @@ natively as a reference, and the gate holds the two byte-identical.
 
 - `extern/pcsx2` - upstream PCSX2, a pinned submodule. Never edited in place.
 - `extern/zlib`, `extern/zstd`, `extern/lz4` - pinned submodules the core links.
-- `patches/` - 26 numbered patch files applied to `extern/pcsx2`.
+- `extern/pcsx2_patches` - PCSX2's patch collection (upstream's patches.zip), a pinned submodule compiled into the core.
+- `patches/` - numbered patch files applied to `extern/pcsx2`.
 - `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `jit_rasterizer`).
 - `waterbox/sources.sh` - the curated list of upstream sources both flavors compile.
 - `waterbox/cinterface.cpp`, `host.cpp`, `host-sys.cpp`, `gs-device.cpp`, `audio-stream.cpp`, `stubs/` - the adapter between PCSX2 and the guest ABI.
 - `waterbox/arcade/` - the NAMCO board (JVS, ATA/ATAPI, SRAM), kept beside upstream.
-- `waterbox/game-database.cpp`, `gen-gamedb.py`, `gen-shaders.py` - PCSX2's per-title database (its compatibility patches included, which `extern/pcsx2/pcsx2/Patch.cpp` applies) and shaders, compiled into the core.
+- `waterbox/game-database.cpp`, `gen-gamedb.py`, `gen-pnach.py`, `gen-shaders.py` - PCSX2's per-title database (its compatibility patches included, which `extern/pcsx2/pcsx2/Patch.cpp` applies), its patch collection (each patch a setting of its game) and its shaders, compiled into the core.
 - `waterbox/gl-osmesa.cpp`, `gl-bridged.cpp`, `gl-host.c`, `gl-entry-points.txt` - OpenGL in the sandbox, and the GPU bridge's guest and host halves.
 - `waterbox/run-native.c`, `run-wbx.c`, `gate-harness.h` - the native reference and the sandbox driver.
 - `waterbox/apply-patches.sh`, `setup-mesa.sh`, `setup-guest.sh`, `build-package.sh`, `run-gate.sh` - the build and the core gate.
@@ -95,9 +96,9 @@ Linux and on Windows.
 ```
 
 - **Know what ran.** Both gates must end with `0 failed`. A PS2 has no HLE
-  bios, so with nothing provided the core gate runs five checks (`keybinds`,
-  `arcade:panel-words`, `nobios:refuses`, `gamedb:loaded`, `gamedb:entry`)
-  and the frontend gate runs none. That is all CI proves about the machine.
+  bios, so with nothing provided the core gate runs seven checks (`keybinds`,
+  `arcade:panel-words`, `nobios:refuses`, `gamedb:loaded`, `gamedb:entry`,
+  `gamedb:patches`, `pnach:table`) and the frontend gate runs none. That is all CI proves about the machine.
 - To gate the machine, provide a bios: the first `*.bin` in
   `tests/roms/bios/`, or `CHIMERA_PS2_BIOS=<file>`. A disc image (`*.bin` or
   `*.iso` in `tests/roms/`) adds the disc checks and lets the frontend gate

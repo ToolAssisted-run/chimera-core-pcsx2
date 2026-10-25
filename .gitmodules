@@ -16,3 +16,6 @@
 [submodule "extern/openps2bios"]
 	path = extern/openps2bios
 	url = https://github.com/TamaribaEmu/OpenPS2BIOS.git
+[submodule "extern/pcsx2_patches"]
+	path = extern/pcsx2_patches
+	url = https://github.com/PCSX2/pcsx2_patches.git

@@ -426,6 +426,29 @@ else
 	report "gamedb:patches" FAIL "native: [$pat_nat] [$dyn_nat] sandbox: [$pat_box] [$dyn_box]"
 fi
 
+# PCSX2's patch collection is in the core too (chimera#371): the files upstream
+# ships as patches.zip, each named patch in them a setting of its game. Asked
+# with an empty tray which patches it has for Black (SLES-53886, checksum
+# ADDFF505), the core reads its table back through PCSX2's own reader and
+# answers as the new-project wizard would be answered: four patches, the
+# widescreen one first, and 4,700 files or more in the table (4,719 at the pin
+# of 2026-10-25). NEGATIVE CONTROL, 2026-10-25: with the table answering
+# nothing for any name, both flavors said settings=0 and named nothing.
+printf '{"verbose":true,"pnach_probe":"SLES-53886:ADDFF505"}' > "$gdb_dir/settings"
+pnach_of() { sed -n 's/.*\(Pnach probe: .*\)/\1/p' <<< "$1" | head -1; }
+pn_nat="$(pnach_of "$("$nat/run-native" "$gdb_dir" --frames 1 2>&1 | plain)")"
+pn_box="$(pnach_of "$("$nat/run-wbx" "$gst/core.wbx" "$gdb_dir" --frames 1 2>&1 | plain)")"
+pn_files="$(sed -n 's/.* files=\([0-9]*\) .*/\1/p' <<< "$pn_box")"
+case "$pn_box" in
+	*' settings=4: Widescreen 16:9 | 50/60 FPS | Video Mode | No Blur While Reload') pn_ok=1 ;;
+	*) pn_ok=0 ;;
+esac
+if [ "$pn_ok" = 1 ] && [ "$pn_nat" = "$pn_box" ] && [ "${pn_files:-0}" -ge 4700 ]; then
+	report "pnach:table" PASS "$pn_files patch files in the core; Black has its four patches as settings, widescreen first, in both flavors"
+else
+	report "pnach:table" FAIL "native: [$pn_nat] sandbox: [$pn_box]"
+fi
+
 # ---- what content there is -------------------------------------------------
 bios="${CHIMERA_PS2_BIOS:-}"
 if [ -z "$bios" ]; then
@@ -465,6 +488,7 @@ if [ -z "$bios" ]; then
 	report "ports:columns" SKIP "needs a bios"
 	report "gs:rounding" SKIP "needs a bios"
 	report "patch:memory" SKIP "needs a bios: would prove a patch from the database reaches the console's memory"
+	report "pnach:refused" SKIP "needs a bios: would prove a patch the game does not have is refused, with the reason"
 	report "disc:boots" SKIP "needs a bios as well as a disc"
 	report "disc:equivalence" SKIP "needs a bios as well as a disc"
 	# the NAMCO boards carry their own bios, so their legs do not depend on the
@@ -543,6 +567,25 @@ if [ "$pp_nat" = "$want" ] && [ "$pp_box" = "$want" ]; then
 	report "patch:memory" PASS "Black's patch from the database is in the console's memory after a frame (0037EBD4: 00000000 -> 4b000460), in both flavors"
 else
 	report "patch:memory" FAIL "native [$pp_nat] sandbox [$pp_box], wanted [$want]"
+fi
+
+# A patch the project turns on that the game's patches do not have is refused,
+# and says which (chimera#371): a movie made with it would play back without
+# it and quietly become another run. An empty tray has no patches at all.
+# NEGATIVE CONTROL, 2026-10-25: without the check (SettlePatchSettings) both
+# flavors boot to the bios menu and report success.
+wn="$work/bios-pnach-refused"
+mkdir -p "$wn"
+cp "$bios" "$wn/bios.bin"
+printf '{"patch:Widescreen 16:9":true}' > "$wn/settings"
+pr_nat="$("$nat/run-native" "$wn" --frames 1 2>&1)"; pr_nat_rc=$?
+pr_box="$("$nat/run-wbx" "$gst/core.wbx" "$wn" --frames 1 2>&1)"; pr_box_rc=$?
+if [ "$pr_nat_rc" -ne 0 ] && [ "$pr_box_rc" -ne 0 ] \
+	&& grep -q 'turns on the patch "Widescreen 16:9", which PCSX2' <<< "$pr_nat" \
+	&& grep -q 'turns on the patch "Widescreen 16:9", which PCSX2' <<< "$pr_box"; then
+	report "pnach:refused" PASS "a patch the game does not have is refused and named, in both flavors"
+else
+	report "pnach:refused" FAIL "native rc=$pr_nat_rc sandbox rc=$pr_box_rc: $(grep -i patch <<< "$pr_box" | tail -1)"
 fi
 
 # The OTHER cpu core: every leg above ran the recompilers (the default), so
@@ -1401,6 +1444,41 @@ else
 		report "ports:columns" PASS "a movie carries the controls the machine has, and no others"
 	else
 		report "ports:columns" FAIL "${wrong#; }"
+	fi
+fi
+
+# A patch from PCSX2's patch collection, turned on by its own setting, reaches
+# the game's memory, and a widescreen patch tells Chimera the picture is 16:9
+# (chimera#371). The game is Black (Europe), SLES-53886, the user's own disc,
+# named by PCSX2_BLACK_DISC and read where it is. Its "Widescreen 16:9" patch
+# writes 00000001 at 003BE8BC and 3FE38E39 at 004CAD54, where the game has
+# 00000000 and 3FAAAAAB; after 300 frames through chimera-run, with the
+# setting on, the words are the patch's and the run reports aspect=17778:10000.
+# With it off they are the game's and no aspect is reported. NEGATIVE
+# CONTROL, 2026-10-25: with the table answering nothing for any name, the run
+# with the setting on gave the game's words and no aspect too.
+black="${PCSX2_BLACK_DISC:-}"
+if [ -z "$black" ] || [ ! -f "$black" ] || [ -z "$chimera_root" ] || [ ! -x "$crun" ] || [ ! -f "$cpkg" ] || [ -z "$bios" ] || [ "$open_bios" = 1 ]; then
+	report "pnach:widescreen" SKIP "needs Black (Europe) named by PCSX2_BLACK_DISC, a retail bios, chimera-run and the installed package: would prove a patch turned on by its setting reaches memory and makes the picture 16:9"
+else
+	ws="$work/pnach-widescreen"
+	mkdir -p "$ws"
+	printf '[Input]\nLogKey:#\n' > "$ws/none.txt"
+	words() { # <ee ram dump> -> "word@003BE8BC word@004CAD54"
+		python3 -c 'import struct,sys; d=open(sys.argv[1],"rb").read(); print("%08x %08x" % (struct.unpack_from("<I",d,0x3BE8BC)[0], struct.unpack_from("<I",d,0x4CAD54)[0]))' "$1" 2>/dev/null
+	}
+	for t in off on; do
+		st='{}'
+		[ "$t" = on ] && st='{"patch:Widescreen 16:9":true}'
+		"$crun" "$cpkg" "$black" "$ws/none.txt" --record "$ws/rec-$t.txt" --frames 300 --settings "$st" \
+			--firmware "bios.bin=$bios" --dump "EE RAM=$ws/ee-$t.bin" --meta "$ws/meta-$t.txt" > "$ws/run-$t.log" 2>&1
+	done
+	w_off="$(words "$ws/ee-off.bin")"; w_on="$(words "$ws/ee-on.bin")"
+	a_off="$(sed -n 's/^aspect=//p' "$ws/meta-off.txt" 2>/dev/null)"; a_on="$(sed -n 's/^aspect=//p' "$ws/meta-on.txt" 2>/dev/null)"
+	if [ "$w_off" = "00000000 3faaaaab" ] && [ "$w_on" = "00000001 3fe38e39" ] && [ -z "$a_off" ] && [ "$a_on" = "17778:10000" ]; then
+		report "pnach:widescreen" PASS "Black's widescreen patch is in memory with its setting on ($w_on, aspect 16:9) and not with it off ($w_off)"
+	else
+		report "pnach:widescreen" FAIL "off: [$w_off] aspect [$a_off]; on: [$w_on] aspect [$a_on] (see $ws)"
 	fi
 fi
 

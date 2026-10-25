@@ -18,8 +18,10 @@ C++ scanline path either way.
 
 PCSX2's game database is compiled into the core, its compatibility patches
 included: a game gets the corrections PCSX2 gives it, and a package pins them.
-Cheats and the patches a person chooses (widescreen, no-interlacing) are not
-applied.
+PCSX2's patch collection is compiled in too: each patch it has for a game
+(widescreen, 60 frames a second, no interlacing and more) is a setting of the
+project, "Use Custom Patch: Enable ...", off unless turned on. A widescreen
+patch also makes Chimera show the picture at 16:9. Cheats are not applied.
 
 ## Using it in Chimera
 

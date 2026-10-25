@@ -38,14 +38,21 @@
 #include <cstring>
 #include <strings.h>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <emulibc.h>
+/* A game's patch settings travel in the settings file beside the package's
+ * (chimera#371), so the reader gets room for a few hundred of them. */
+#define WBX_SETTINGS_MAX_BYTES 32768
+#define WBX_SETTINGS_MAX_TOKENS 2048
 #include <waterbox_settings.h>
 #include <waterbox_slots.h>
 
 #include "CDVD/CDVD.h"
 #include "CDVD/CDVDcommon.h"
 #include "Config.h"
+#include "Elfheader.h"
 #include "GS/GS.h"
 #include "GameDatabase.h"
 #include "Host.h"
@@ -786,6 +793,8 @@ static uint64_t ChimeraVulkanBridge(uint64_t op, uint64_t a, uint64_t b, uint64_
 }
 #endif
 
+static std::vector<std::string> EnabledPatchSettings();
+
 static void ApplySettings(SettingsInterface& si, bool verbose)
 {
 	/* The bios. There is no HLE alternative on a PS2 - nothing boots without
@@ -1046,6 +1055,10 @@ static void ApplySettings(SettingsInterface& si, bool verbose)
 	si.SetBoolValue("EmuCore", "EnableWideScreenPatches", false);
 	si.SetBoolValue("EmuCore", "EnableNoInterlacingPatches", false);
 	si.SetBoolValue("EmuCore", "EnablePatches", true);
+	/* ...and the patches of PCSX2's patch collection the project turned on,
+	 * each by its own setting (chimera#371): upstream's list of enabled
+	 * patches, by name, which Patch::ReloadEnabledLists reads */
+	si.SetStringList("Patches", "Enable", EnabledPatchSettings());
 	si.SetBoolValue("EmuCore", "SaveStateOnShutdown", false);
 
 	/* The memory cards.
@@ -1464,6 +1477,262 @@ static bool PlanSaveData(char* err, size_t errsz)
 	return true;
 }
 
+} /* extern "C": the patch settings below are C++ */
+
+/* PCSX2's patch collection (chimera#371, user-decided 2026-10-25). The files
+ * upstream ships as patches.zip are compiled into the core (waterbox/gen-pnach.py,
+ * patch 0030), and every named patch in a game's file is a setting of that game:
+ * "patch:<its name>", shown as "Use Custom Patch: Enable <its name>", off unless
+ * the project turns it on. A game's own settings are named by the core that knows
+ * the game - before it starts, for the new-project wizard (SuggestSettings), and
+ * once it has started, for the project's settings (GetGameSettings). */
+static const char kPatchSettingPrefix[] = "patch:";
+extern "C" size_t chimera_pnach_count(void);   /* the files in the table (gen-pnach.py) */
+
+/* A JSON string's text without its escapes (the settings file is JSON). */
+static std::string JsonUnescape(const char* p, size_t n)
+{
+	std::string out;
+	out.reserve(n);
+	for (size_t i = 0; i < n; i++)
+	{
+		if (p[i] != '\\' || i + 1 >= n)
+		{
+			out.push_back(p[i]);
+			continue;
+		}
+		const char e = p[++i];
+		switch (e)
+		{
+			case 'n': out.push_back('\n'); break;
+			case 't': out.push_back('\t'); break;
+			case 'r': out.push_back('\r'); break;
+			case 'b': out.push_back('\b'); break;
+			case 'f': out.push_back('\f'); break;
+			case 'u':
+			{
+				unsigned cp = 0;
+				if (i + 4 < n)
+				{
+					for (int k = 1; k <= 4; k++)
+					{
+						const char h = p[i + k];
+						cp = cp * 16 + (unsigned)(h >= '0' && h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10);
+					}
+					i += 4;
+				}
+				if (cp < 0x80) out.push_back((char)cp);
+				else if (cp < 0x800) { out.push_back((char)(0xC0 | (cp >> 6))); out.push_back((char)(0x80 | (cp & 0x3F))); }
+				else { out.push_back((char)(0xE0 | (cp >> 12))); out.push_back((char)(0x80 | ((cp >> 6) & 0x3F))); out.push_back((char)(0x80 | (cp & 0x3F))); }
+				break;
+			}
+			default: out.push_back(e); break;   /* \" \\ \/ */
+		}
+	}
+	return out;
+}
+
+/* The text as a quoted JSON string. */
+static std::string JsonQuote(std::string_view s)
+{
+	std::string out = "\"";
+	for (const char c : s)
+	{
+		switch (c)
+		{
+			case '"': out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default:
+				if ((unsigned char)c < 0x20)
+				{
+					char u[8];
+					snprintf(u, sizeof(u), "\\u%04x", (unsigned)(unsigned char)c);
+					out += u;
+				}
+				else
+					out.push_back(c);
+		}
+	}
+	out.push_back('"');
+	return out;
+}
+
+/* The names of the patches the project turned on: every "patch:" setting whose
+ * value is true, read from the mounted settings file itself, because which
+ * patches exist is the game's to say and no list of keys could be known here. */
+static std::vector<std::string> EnabledPatchSettings()
+{
+	std::vector<std::string> names;
+	FILE* f = fopen("settings", "rb");
+	if (!f)
+		return names;
+	std::string text;
+	char chunk[4096];
+	for (size_t got; (got = fread(chunk, 1, sizeof(chunk), f)) > 0;)
+		text.append(chunk, got);
+	fclose(f);
+	jsmn_parser parser;
+	jsmn_init(&parser);
+	const int count = jsmn_parse(&parser, text.data(), text.size(), nullptr, 0);
+	if (count < 1)
+		return names;
+	std::vector<jsmntok_t> tok(count);
+	jsmn_init(&parser);
+	if (jsmn_parse(&parser, text.data(), text.size(), tok.data(), (unsigned)tok.size()) < 1 || tok[0].type != JSMN_OBJECT)
+		return names;
+	const size_t prefix = sizeof(kPatchSettingPrefix) - 1;
+	for (int i = 1; i + 1 < count; i += 2)
+	{
+		const jsmntok_t& k = tok[i];
+		const jsmntok_t& v = tok[i + 1];
+		if (k.type != JSMN_STRING || v.type != JSMN_PRIMITIVE || text[v.start] != 't')
+			continue;
+		const std::string key = JsonUnescape(text.data() + k.start, (size_t)(k.end - k.start));
+		if (key.compare(0, prefix, kPatchSettingPrefix) == 0 && key.size() > prefix)
+			names.push_back(key.substr(prefix));
+	}
+	return names;
+}
+
+/* The settings a game's patches make, as a JSON array of declarations in
+ * waterbox.config's setting format: one bool for each named patch the
+ * collection has for this serial and checksum, in the file's order. */
+static std::string PatchSettingsJson(const std::string& serial, u32 crc, size_t* count)
+{
+	std::vector<std::string> seen;
+	std::string json = "[";
+	for (const Patch::PatchInfo& info : Patch::GetPatchInfo(serial, crc, false, false, nullptr))
+	{
+		if (info.name.empty() || std::find(seen.begin(), seen.end(), info.name) != seen.end())
+			continue;
+		seen.push_back(info.name);
+		/* what the patch says of itself, who wrote it, and what it means for a movie */
+		std::string about = info.description;
+		if (!about.empty() && about.back() != '.' && about.back() != '!' && about.back() != '?')
+			about += ".";
+		if (!info.author.empty())
+			about += (about.empty() ? "" : " ") + std::string("By ") + info.author + ".";
+		about += (about.empty() ? "" : " ") + std::string(
+			"From PCSX2's patch collection. It changes the game's own code, so a movie made with it plays back only with it.");
+		if (json.size() > 1)
+			json += ",";
+		json += "{\"name\":" + JsonQuote(std::string(kPatchSettingPrefix) + info.name)
+			+ ",\"display\":" + JsonQuote("Use Custom Patch: Enable " + info.name)
+			+ ",\"description\":" + JsonQuote(about)
+			+ ",\"type\":\"bool\",\"default\":false}";
+	}
+	json += "]";
+	if (count)
+		*count = seen.size();
+	return json;
+}
+
+/* The game's patch settings once the machine has started (GetGameSettings). */
+static std::string g_gameSettings = "[]";
+
+/* After the machine has started: its patch settings, and a refusal for a patch
+ * the project turned on that this game's patches do not have - a movie made
+ * with it would play back without it and silently become another run (a
+ * collection update that renamed a patch, a project made for another release
+ * of the game). Null when every patch turned on is there. */
+static const char* SettlePatchSettings()
+{
+	static char why[512];
+	const std::string serial = VMManager::GetDiscSerial();
+	const u32 crc = VMManager::GetDiscCRC();
+	g_gameSettings = PatchSettingsJson(serial, crc, nullptr);
+	const std::vector<Patch::PatchInfo> have = Patch::GetPatchInfo(serial, crc, false, false, nullptr);
+	for (const std::string& name : EnabledPatchSettings())
+	{
+		if (std::none_of(have.begin(), have.end(), [&](const Patch::PatchInfo& p) { return p.name == name; }))
+		{
+			snprintf(why, sizeof(why),
+				"the project turns on the patch \"%s\", which PCSX2's patch collection in this core does not have "
+				"for this game (%s, checksum %08X). Turn it off in the project's settings.",
+				name.c_str(), serial.empty() ? "no serial" : serial.c_str(), crc);
+			return why;
+		}
+	}
+	return nullptr;
+}
+
+extern "C" {
+
+ECL_EXPORT const char* GetGameSettings(void) { return g_gameSettings.c_str(); }
+
+/* What the new-project wizard asks before the machine exists (suggestSettings
+ * in waterbox.config): no values, and the game's patches as settings of its
+ * own. The disc is read the way upstream's game list reads one - its
+ * SYSTEM.CNF for the serial, its boot program for the checksum - and closed
+ * again; nothing boots. */
+ECL_EXPORT const char* SuggestSettings(void)
+{
+	static std::string answer;
+	std::string serial;
+	u32 crc = 0;
+	bool read = false;
+	char name[512];
+	const char* file = "disc";
+	if (wbx_slot_count("disc") > 0 && wbx_slot_name("disc", 0, name, sizeof(name)) != nullptr)
+		file = name;
+	if (FileSystem::FileExists(file))
+	{
+		const ProgramKind kind = ClassifyProgram(file);
+		if (kind == ProgramKind::Executable)
+		{
+			ElfObject elf;
+			Error error;
+			if (elf.OpenFile(file, false, &error))
+			{
+				crc = elf.GetCRC();
+				read = true;
+			}
+		}
+		else if (kind != ProgramKind::IopModule)
+		{
+			Error error;
+			CDVD = &CDVDapi_Iso;
+			if (CDVD->open(file, &error))
+			{
+				DoCDVDdetectDiskType();
+				cdvdGetDiscInfo(&serial, nullptr, nullptr, &crc, nullptr);
+				DoCDVDclose();
+				read = true;
+			}
+		}
+	}
+	size_t count = 0;
+	const std::string settings = read ? PatchSettingsJson(serial, crc, &count) : "[]";
+	char note[384];
+	if (!read)
+		snprintf(note, sizeof(note), "The game could not be read, so the patches PCSX2's patch collection has for it are not listed.");
+	else if (count == 0)
+		snprintf(note, sizeof(note), "PCSX2's patch collection has no patches for this game (%s, checksum %08X).",
+			serial.empty() ? "no serial" : serial.c_str(), crc);
+	else
+		snprintf(note, sizeof(note),
+			"PCSX2's patch collection has %zu patch%s for this game (%s, checksum %08X), listed as Use Custom Patch settings, all off.",
+			count, count == 1 ? "" : "es", serial.empty() ? "no serial" : serial.c_str(), crc);
+	answer = "{\"values\":{},\"note\":" + JsonQuote(note) + ",\"settings\":" + settings + "}";
+	return answer.c_str();
+}
+
+/* The shape of the picture, when a patch says what it is (a widescreen patch's
+ * gsaspectratio=16:9, applied by Patch::ApplyPatchSettingOverrides); 0, which
+ * leaves the package's own shape, otherwise. */
+ECL_EXPORT int GetDisplayAspectX(void)
+{
+	const float ratio = EmuConfig.CurrentCustomAspectRatio;
+	return g_loaded && ratio > 0.f ? (int)(ratio * 10000.f + 0.5f) : 0;
+}
+ECL_EXPORT int GetDisplayAspectY(void)
+{
+	return g_loaded && EmuConfig.CurrentCustomAspectRatio > 0.f ? 10000 : 0;
+}
+
 ECL_EXPORT int Init(void)
 {
 	g_loadError[0] = '\0';
@@ -1583,6 +1852,30 @@ ECL_EXPORT int Init(void)
 		 * first frame (ChimeraPatchProbe) */
 		if (!wbx_setting_str("patch_probe", g_patchProbe, sizeof(g_patchProbe)))
 			g_patchProbe[0] = '\0';
+		/* ...and which patches PCSX2's patch collection has for one title
+		 * (SERIAL:CRC), as the settings the wizard would be given: the patch
+		 * table compiled into the core, read back through PCSX2's own reader */
+		char pnach[64] = "";
+		if (wbx_setting_str("pnach_probe", pnach, sizeof(pnach)) && pnach[0] != '\0')
+		{
+			const std::string_view q(pnach);
+			const size_t colon = q.find(':');
+			const std::optional<u32> crc = colon == std::string_view::npos ? std::nullopt
+				: StringUtil::FromChars<u32>(q.substr(colon + 1), 16);
+			if (!crc.has_value())
+				Console.WriteLn(fmt::format("Pnach probe: '{}' is not SERIAL:CRC", q));
+			else
+			{
+				const std::string serial(q.substr(0, colon));
+				std::string names;
+				for (const Patch::PatchInfo& info : Patch::GetPatchInfo(serial, crc.value(), false, false, nullptr))
+					names += (names.empty() ? "" : " | ") + info.name;
+				size_t settings = 0;
+				PatchSettingsJson(serial, crc.value(), &settings);
+				Console.WriteLn(fmt::format("Pnach probe: {} {:08X} files={} settings={}: {}", serial, crc.value(),
+					chimera_pnach_count(), settings, names));
+			}
+		}
 	}
 
 	/* The disc, if the project has one. A PS2 with no disc is a PS2 sitting at
@@ -1631,6 +1924,11 @@ ECL_EXPORT int Init(void)
 		DecideFieldRate(verbose);
 		if (!ResolveGunBinds(verbose))
 			return 0;
+		if (const char* failed = SettlePatchSettings())
+		{
+			snprintf(g_loadError, sizeof(g_loadError), "%s", failed);
+			return 0;
+		}
 		VMManager::SetState(VMState::Running);
 		g_loaded = true;
 		return 1;
@@ -1694,6 +1992,12 @@ ECL_EXPORT int Init(void)
 	/* ...and its USB devices exist, so the gun's controls can be looked up */
 	if (!ResolveGunBinds(verbose))
 		return 0;
+	/* ...and its serial and checksum are known, which name its patches */
+	if (const char* failed = SettlePatchSettings())
+	{
+		snprintf(g_loadError, sizeof(g_loadError), "%s", failed);
+		return 0;
+	}
 
 	VMManager::SetState(VMState::Running);
 	g_loaded = true;

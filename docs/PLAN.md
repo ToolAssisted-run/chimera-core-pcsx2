@@ -1425,3 +1425,60 @@ delete one it had just made (Dolphin's vertex arrays drew a grey screen
 black). Nothing in this core's own code changed: its build generates the
 wrappers from miniBox, so this note is the commit that rebuilds it. A test
 runner's host half answers the new opcode with nothing (miniBox b7bc1a2).
+
+## PCSX2's patch collection is in the core, each patch a setting (chimera#371, user-decided 2026-10-25)
+
+The request was a 16:9 picture. Stretching the picture already works in
+Chimera (Config > Display > Use custom AR), and is right for a game with its
+own 16:9 option. A real widescreen picture needs PCSX2's widescreen patches,
+which change the game's code. The owner decided to ship them, and then every
+other patch beside them: each patch PCSX2's collection has for a game is a
+setting of that game, "Use Custom Patch: Enable <its name>", off unless the
+project turns it on.
+
+**Where they come from.** PCSX2/pcsx2_patches, the collection upstream ships
+as patches.zip, is the submodule `extern/pcsx2_patches`, pinned (4,719 files
+at ba8ef4f4). It states no licence; the owner decided to ship it regardless,
+and `waterbox/package-licenses.json` credits it. `waterbox/gen-pnach.py`
+compiles the files into a table in the core (3.3 MB of text), as
+`gen-gamedb.py` does the game database. Patch 0030 makes upstream's
+`EnumeratePnachFiles` read that table under the names it would look for in the
+zip (SERIAL_CRC.pnach, then CRC.pnach); still no patch comes from a folder of
+files, and there are no cheats. A patch outside a named group would be turned
+on by upstream with no way to turn it off; there is none, and the generator
+stops on one.
+
+**How a game names its patches.** A patch is per game, so its setting is a
+setting of the game's (the way FBNeo's dip switches are): the core says which
+there are. Before the machine exists, the new-project wizard asks
+`SuggestSettings` (`"suggestSettings": true`), which reads the disc the way
+upstream's game list does - SYSTEM.CNF for the serial, the boot program for
+the checksum - and answers no values, a note, and the patches as settings.
+Once the machine has started, `GetGameSettings` answers the same for the
+project's settings (Chimera's File > Project Settings). The setting's name is
+`patch:<the patch's name>`; its description is the patch's own, its author,
+and that a movie made with it plays back only with it.
+
+**How one is turned on.** Init reads every `patch:` setting that is true from
+the mounted settings file and gives the names to upstream's list of enabled
+patches (`Patches/Enable`), which `Patch::ReloadEnabledLists` reads. The two
+switches upstream offers (widescreen, no-interlacing) stay off; the names do
+the work. A patch turned on that the game's patches do not have is refused,
+with its name: a movie made with it would play back without it. The settings
+reader is given room for a few hundred settings (32 KiB, 2,048 tokens).
+
+**The picture's shape.** A widescreen patch says `gsaspectratio=16:9`, which
+upstream applies as its custom aspect ratio. `GetDisplayAspectX/Y` hand that
+to Chimera, so the picture is shown at 16:9; with no such patch they answer 0
+and the package's own shape stands.
+
+Measured with Black (Europe), SLES-53886, checksum ADDFF505: the wizard is
+told of its four patches (Widescreen 16:9, 50/60 FPS, Video Mode, No Blur
+While Reload). After 300 frames with the widescreen setting on, its words are
+in memory (00000001 at 003BE8BC, 3FE38E39 at 004CAD54; 00000000 and
+3FAAAAAB with it off), and chimera-run reports aspect=17778:10000; off, it
+reports none. A project turning on "Widescreen 16:10", which Black does not
+have, is refused with that name.
+
+Tests: `pnach:table` (no bios), `pnach:refused` (a bios), `pnach:widescreen`
+(Black, by `PCSX2_BLACK_DISC`).

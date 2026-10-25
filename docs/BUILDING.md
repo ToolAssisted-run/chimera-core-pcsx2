@@ -324,7 +324,7 @@ Options: `-n <native build dir>` (default `build/meson-native`) and
 `run-wbx` and `core.wbx`. It prints one line per check and ends with
 `N ok, N failed, N skipped`; it fails when any check failed.
 
-**With no bios at all**, five checks run:
+**With no bios at all**, seven checks run:
 
 | Check | What it holds |
 | --- | --- |
@@ -333,6 +333,8 @@ Options: `-n <native build dir>` (default `build/meson-native`) and
 | `nobios:refuses` | a machine with no bios is refused, and the refusal names the bios, natively and in the sandbox |
 | `gamedb:loaded` | the per-title database is compiled in and is not empty, natively and in the sandbox |
 | `gamedb:entry` | one known database entry reads back with its fixes in both flavors |
+| `gamedb:patches` | the database's own patches are in the core (Black has one, SCES-51607 a pattern to replace) |
+| `pnach:table` | PCSX2's patch collection is in the core: 4,700 files or more, and Black's four patches read back as the settings the wizard is given, in both flavors (chimera#371) |
 
 Every other check reports SKIP and says what it would have proven.
 
@@ -357,7 +359,8 @@ video, audio, lag and memory-domain digests (`bios:equivalence`), the
 interpreters (`cpu:interpreter`, `cpu:interpreter-rerecord`), turbo, the
 deinterlacer, a savestate round-trip around every frame (`bios:savestate`),
 native determinism, the memory domains, the picture, input and lag, and the
-save-data channel. With `tests/own/chimera-padtest.iso`, this repository's
+save-data channel, and `pnach:refused` (a patch the game does not have is
+refused, with its name). With `tests/own/chimera-padtest.iso`, this repository's
 own test program on its own disc (source, build and licence in
 `tests/own/chimera-padtest/`), it also runs `pad:*`, `gun:bus`,
 `gun:controls`, `gun:equivalence` and the renderer checks.
@@ -376,6 +379,7 @@ own test program on its own disc (source, build and licence in
 | `vk:settings` | `PCSX2_GFX_DISC` as for `gpu:picture`, and a Vulkan driver |
 | `vk:picture-after-load` | `chimera-run` and the installed package as for `gl:rebuild-at-zero`, from a Chimera at commit 4ca6e30 or later, and a Vulkan driver |
 | `ports:columns`, `gl:rebuild-at-zero` | `<chimera>/build/meson-linux/chimera-run` and the installed `<chimera>/build/Cores/pcsx2.chimeraCore`; found through `$CHIMERA_ROOT`, then `chimera-checkout/`, `../../chimera`, `../chimera`, `$HOME/chimera` |
+| `pnach:widescreen` | the same `chimera-run` and package, a retail bios, and Black (Europe) named by `PCSX2_BLACK_DISC`: its "Widescreen 16:9" patch is in memory with its setting on and not with it off, and the run reports a 16:9 picture (chimera#371) |
 
 CI builds all of the last two rows' needs, so on OpenPS2BIOS it runs the
 `gpu:bridge`, `vk:*` and `gl:*` checks and `ports:columns` too, on Mesa's
