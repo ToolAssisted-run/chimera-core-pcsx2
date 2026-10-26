@@ -48,6 +48,27 @@ done
 	echo "guest build missing: sh waterbox/setup-guest.sh && ninja -C build/meson-guest core.wbx" >&2; exit 1; }
 
 work="$(mktemp -d)"
+# A game runs only in a project (Chimera, 2026-10-26): crun_game <package>
+# <game> <movie> [chimera-run's options] makes one of the game and the movie,
+# with any --settings and --firmware given, and runs it with the rest.
+crun_game() {
+	local pkg="$1" game="$2" movie="$3" made=() run=() dir
+	shift 3
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--settings) made+=("$1" "$2"); shift ;;
+			--settings=*) made+=(--settings "${1#--settings=}") ;;
+			--firmware) made+=("$1" "$2"); run+=("$1" "$2"); shift ;;
+			--firmware=*) made+=(--firmware "${1#--firmware=}"); run+=(--firmware "${1#--firmware=}") ;;
+			*) run+=("$1") ;;
+		esac
+		shift
+	done
+	dir="$(mktemp -d "$work/project.XXXXXX")"
+	"$crun" --new-project "$dir/game.chimeraProject" "$pkg" "$game" "$movie" "${made[@]}" > "$dir/make.log" 2>&1 \
+		|| { echo "chimera-run: no project made: $(tail -1 "$dir/make.log")" >&2; return 2; }
+	"$crun" --project "$dir/game.chimeraProject" "$pkg" --files "$(dirname "$game")" "${run[@]}"
+}
 trap 'rm -rf "$work"' EXIT
 digests() { grep -E '^(frames|vsync|videoHash|audioHash|lagFrames|domain\[)'; }
 # What a turbo run can be held to: everything except the whole-run video hash,
@@ -1421,7 +1442,7 @@ else
 	printf '[Input]\nLogKey:#\n' > "$work/none.txt"
 	wrong=""
 	check() { # <settings> <expected entry> <what it means>
-		got="$("$crun" "$cpkg" "$padexe" "$work/none.txt" --settings "$1" \
+		got="$(crun_game "$cpkg" "$padexe" "$work/none.txt" --settings "$1" \
 			--frames 1 --record "$work/shape.txt" --firmware "bios.bin=$bios" \
 			>/dev/null 2>&1 && head -1 "$work/shape.txt")"
 		[ "$got" = "$2" ] || wrong="$wrong; $3 gave [${got:-nothing}] want [$2]"
@@ -1470,7 +1491,7 @@ else
 	for t in off on; do
 		st='{}'
 		[ "$t" = on ] && st='{"patch:Widescreen 16:9":true}'
-		"$crun" "$cpkg" "$black" "$ws/none.txt" --record "$ws/rec-$t.txt" --frames 300 --settings "$st" \
+		crun_game "$cpkg" "$black" "$ws/none.txt" --record "$ws/rec-$t.txt" --frames 300 --settings "$st" \
 			--firmware "bios.bin=$bios" --dump "EE RAM=$ws/ee-$t.bin" --meta "$ws/meta-$t.txt" > "$ws/run-$t.log" 2>&1
 	done
 	w_off="$(words "$ws/ee-off.bin")"; w_on="$(words "$ws/ee-on.bin")"
@@ -1643,12 +1664,12 @@ else
 	mkdir -p "$gz"
 	printf '[Input]\nLogKey:#\n' > "$gz/none.txt"
 	# a movie of its own: --rewind-loop needs frames to rewind through
-	"$crun" "$cpkg" "$padelf" "$gz/none.txt" --settings '{"renderer":"opengl-hw"}' \
+	crun_game "$cpkg" "$padelf" "$gz/none.txt" --settings '{"renderer":"opengl-hw"}' \
 		--frames 40 --record "$gz/movie.txt" --firmware "bios.bin=$bios" \
 		> "$gz/record.log" 2>&1
 	# the GL calls in the frame that follows a restore to $1
 	restore_calls() {
-		CHIMERA_GL_TRACE=1 CHIMERA_GL_STATEAUDIT=1 "$crun" "$cpkg" "$padelf" \
+		CHIMERA_GL_TRACE=1 CHIMERA_GL_STATEAUDIT=1 crun_game "$cpkg" "$padelf" \
 			"$gz/movie.txt" --settings '{"renderer":"opengl-hw"}' --frames 40 \
 			--firmware "bios.bin=$bios" --gpu --greenzone 4096 --rewind-loop "$1",1 \
 			> "$gz/rewind.$1.log" 2>&1
@@ -1685,7 +1706,7 @@ else
 		if grep -q "^chimera gl: no context" "$gz/rewind.0.log"; then
 			report "gl:readback-after-zero" SKIP "this build or this machine gives the bridge no GL context"
 		else
-			"$crun" "$cpkg" "$padelf" "$gz/movie.txt" --settings '{"renderer":"opengl-hw"}' --frames 40 \
+			crun_game "$cpkg" "$padelf" "$gz/movie.txt" --settings '{"renderer":"opengl-hw"}' --frames 40 \
 				--firmware "bios.bin=$bios" --gpu --greenzone 4096 --render-every-frame --rewind-loop 0,1 \
 				> "$gz/readback.log" 2>&1
 			rc=$?
@@ -1729,7 +1750,7 @@ else
 			mkdir -p "$pal"
 			palrun() { # <movie> <log> <chimera-run arguments...>
 				palmovie="$1"; pallog="$2"; shift 2
-				CHIMERA_PICTURE_TRACE=1 "$crun" "$cpkg" "$padelf" "$palmovie" --settings "{\"renderer\":\"$palrenderer\"}" \
+				CHIMERA_PICTURE_TRACE=1 crun_game "$cpkg" "$padelf" "$palmovie" --settings "{\"renderer\":\"$palrenderer\"}" \
 					--frames 70 --firmware "bios.bin=$bios" "$@" > "$pallog" 2>&1 || true
 			}
 			exact() { grep -c ": 0.00% of pixels differ, 0.00% by more than 8 (largest 0)" "$1"; }
