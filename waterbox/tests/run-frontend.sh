@@ -1,9 +1,9 @@
 #!/bin/bash
-# The frontend half of the gate: load the PCSX2 package in Chimera (under Mono,
-# on a private Xvfb display), boot a disc for a fixed number of frames with
+# The frontend half of the gate: load the PCSX2 package in Chimera's window (run
+# headless: no display is needed), boot a disc for a fixed number of frames with
 # nothing pressed, and require the machine's memory to be byte-identical to the
 # native reference. Then prove that a machine-shaping setting arrives through
-# the frontend, and that the package's keybinds become the frontend's defaults.
+# the frontend, and that the package's keybinds become the machine's.
 #
 # It needs the same content the core gate's second tier needs - a bios, and a
 # disc - because a PlayStation 2 cannot run without them. Without that it
@@ -36,10 +36,10 @@ fi
 	echo "chimera checkout not found; pass --chimera-root <path>" >&2; exit 1; }
 chimera_root="$(cd "$chimera_root" && pwd)"
 
-emu_exe="$chimera_root/build/Chimera.exe"
+chimera_exe="$chimera_root/build/meson-linux/source/ui/chimera"
 package="$chimera_root/build/Cores/pcsx2.chimeraCore"
 rn="$root/build/meson-native/run-native"
-[ -f "$emu_exe" ] || { echo "Chimera not built: $emu_exe" >&2; exit 1; }
+[ -x "$chimera_exe" ] || { echo "Chimera not built: $chimera_exe" >&2; exit 1; }
 [ -f "$package" ] || { echo "package not installed: $package (run ../build-package.sh)" >&2; exit 1; }
 [ -x "$rn" ] || { echo "native reference not built" >&2; exit 1; }
 
@@ -99,29 +99,11 @@ fi
 work="$here/work"
 mkdir -p "$work"
 
-export LD_LIBRARY_PATH="$chimera_root/build/dll:$chimera_root/build:/usr/lib/x86_64-linux-gnu"
-export MONO_CRASH_NOFILE=1 MONO_WINFORMS_XIM_STYLE=disabled ALSOFT_DRIVERS=null
-xvfb_pid=""
-cleanup() { [ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null; }
-trap cleanup EXIT
-if [ -z "${DISPLAY:-}" ]; then
-	command -v Xvfb >/dev/null || { echo "Xvfb not found (apt install xvfb)" >&2; exit 1; }
-	for n in 90 91 92 93 94 95 96; do
-		if [ ! -e "/tmp/.X11-unix/X$n" ]; then
-			Xvfb ":$n" -screen 0 640x480x24 -nolisten tcp & xvfb_pid=$!
-			export DISPLAY=":$n"; break
-		fi
-	done
-	sleep 1
-fi
-
-config="$work/config.ini"
-if [ ! -f "$config" ]; then
-	( cd "$chimera_root" && timeout 120 mono "$emu_exe" --headless "--config=$config" \
-		"--lua=$here/exit.lua" ) > "$work/bootstrap.log" 2>&1
-	[ -f "$config" ] || { echo "config bootstrap failed (see $work/bootstrap.log)" >&2; exit 1; }
-fi
-sed -i 's/"DispMethod": [0-9]/"DispMethod": 1/' "$config"
+# Chimera's window, run headless: the cores installed in the checkout, its
+# settings, cache and recovery files the run's own, and nothing carried over
+# from a Chimera installed on this machine
+export ALSOFT_DRIVERS=null CHIMERA_CORES_DIR="$chimera_root/build/Cores" CHIMERA_QT_CACHE="$work/qt-cache" CHIMERA_QT_RECOVERY="$work/qt-recovery" \
+	CHIMERA_QT_HASHES="$work/qt-file-hashes.txt" CHIMERA_QT_CHIMERA_SETTINGS="$work/no-chimera-config.ini"
 
 SLICE=1048576
 
@@ -143,7 +125,7 @@ run_frontend() {
 	[ -n "$shot" ] && rm -f "$shot"
 	local project
 	project="$(game_project "$tag" "$cfg" "$package" "$disc")" || { cp "$work/projects/$tag.make.log" "$work/$tag.log"; return 1; }
-	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 mono "$emu_exe" --headless \
+	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 "$chimera_exe" --headless \
 		"--config=$cfg" "--core=$package" \
 		"--lua=$here/frontend-ram.lua" "--project=$project" ) > "$work/$tag.log" 2>&1
 	[ -f "$work/$tag.meta.txt" ] && grep -q "^status=OK" "$work/$tag.meta.txt"
@@ -175,7 +157,7 @@ native_iop() {
 # of its game with chimera-run --new-project, holding the settings (and the firmware)
 # settings_config was given for the config it runs with.
 declare -A settings_of firmware_of
-settings_config() { python3 "$here/settings-config.py" "$config" "$1" "$2" "$3"; settings_of["$1"]="$2"; firmware_of["$1"]="${3:-}"; }
+settings_config() { python3 "$here/settings-config.py" "$1" "$2" "$3"; settings_of["$1"]="$2"; firmware_of["$1"]="${3:-}"; }
 crun="$chimera_root/build/dll/chimera-run"
 game_project() { # tag, config, package, game: prints the project's path
 	local dir="$work/projects" settings="${settings_of[$2]:-}" firmware="${firmware_of[$2]:-}"
@@ -198,10 +180,10 @@ for k, v in json.loads(sys.argv[1]).items(): print("--firmware"); print(k + "=" 
 # a leg that proves the frontend mounted nothing. (It did, once: the core only
 # knew how to find a disc through a project's slot map, and a rom opened
 # directly arrives under the name waterbox.config calls "romFile".)
-settings_config "$work/config.base.ini" "{\"fast_boot\": true, \"bios\": \"$bios_choice\"}" "$firmware_json"
+settings_config "$work/settings.base.json" "{\"fast_boot\": true, \"bios\": \"$bios_choice\"}" "$firmware_json"
 if ! native_ram "base" '{"fast_boot":true}'; then
 	report "disc:frontend" FAIL "native runner error (see tests/work/native.base.txt)"
-elif ! run_frontend "base" "$work/config.base.ini" "$frames" "$work/base.png"; then
+elif ! run_frontend "base" "$work/settings.base.json" "$frames" "$work/base.png"; then
 	report "disc:frontend" FAIL "no OK meta (see tests/work/base.log)"
 elif ! cmp -s "$work/native.base.ram.bin" "$work/base.ram.bin"; then
 	report "disc:frontend" FAIL "EE RAM differs from the native reference"
@@ -222,10 +204,10 @@ fi
 # a fast boot, the game has not asked yet - so the leg looks where the setting
 # actually lands, and requires the EE side to match its native reference all
 # the same.
-settings_config "$work/config.rtc.ini" "{\"fast_boot\": true, \"rtc_year\": 7, \"bios\": \"$bios_choice\"}" "$firmware_json"
+settings_config "$work/settings.rtc.json" "{\"fast_boot\": true, \"rtc_year\": 7, \"bios\": \"$bios_choice\"}" "$firmware_json"
 if ! native_ram "rtc" '{"fast_boot":true,"rtc_year":7}'; then
 	report "settings:clock" FAIL "native runner error (see tests/work/native.rtc.txt)"
-elif ! run_frontend "rtc" "$work/config.rtc.ini" "$frames"; then
+elif ! run_frontend "rtc" "$work/settings.rtc.json" "$frames"; then
 	report "settings:clock" FAIL "run did not report OK (see tests/work/rtc.log)"
 elif ! cmp -s "$work/native.rtc.ram.bin" "$work/rtc.ram.bin"; then
 	report "settings:clock" FAIL "EE RAM differs from its native reference with rtc_year=7"
@@ -266,8 +248,8 @@ for s in json.load(open(sys.argv[1]))['settings']:
 if [ "$bios_choice" != "$default_bios" ]; then
 	report "bios:default" SKIP "the bios found is $bios_choice; this needs the console's default, $default_bios"
 else
-	settings_config "$work/config.nobios.ini" '{"fast_boot": true}' "$firmware_json"
-	if ! run_frontend "nobios" "$work/config.nobios.ini" "$frames"; then
+	settings_config "$work/settings.nobios.json" '{"fast_boot": true}' "$firmware_json"
+	if ! run_frontend "nobios" "$work/settings.nobios.json" "$frames"; then
 		report "bios:default" FAIL "with no Boot ROM named the machine did not start (see tests/work/nobios.log)"
 	elif ! cmp -s "$work/native.base.ram.bin" "$work/nobios.ram.bin"; then
 		report "bios:default" FAIL "EE RAM differs from the run that names the same Boot ROM"
@@ -276,17 +258,22 @@ else
 	fi
 fi
 
-# --- the bindings the package ships must become the frontend's defaults ------
-python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "PlayStation 2 Controllers"
-if run_frontend "keys" "$work/config.keys.ini" 1; then
-	if python3 "$here/check-keybinds.py" "$work/config.keys.ini" \
-		"$wb/default_keybinds.json" "PlayStation 2 Controllers" > "$work/keys.txt" 2>&1; then
-		report "keybinds" PASS "$(cat "$work/keys.txt")"
-	else
-		report "keybinds" FAIL "$(head -1 "$work/keys.txt")"
-	fi
-else
+# --- the bindings the package ships are the machine's when nobody changed them
+# (the window keeps only the keys a person changed; fresh settings have none)
+rm -f "$work/keys.log"
+keysproj="$(game_project "keys" "$work/settings.base.json" "$package" "$disc")" || cp "$work/projects/keys.make.log" "$work/keys.log"
+printf 'out=%s/keys.controls.json\nmeta=%s/keys.meta.txt\n' "$work" "$work" > "$work/job.keys.txt"
+rm -f "$work/keys.controls.json" "$work/keys.meta.txt"
+( cd "$chimera_root" && MINIHAWK_JOB="$work/job.keys.txt" timeout 900 "$chimera_exe" --headless \
+	"--config=$work/settings.base.json" "--project=$keysproj" \
+	"--lua=$here/dump-controls.lua" ) >> "$work/keys.log" 2>&1
+if [ ! -f "$work/keys.meta.txt" ] || ! grep -q "^status=OK" "$work/keys.meta.txt"; then
 	report "keybinds" FAIL "run did not report OK (see tests/work/keys.log)"
+elif python3 "$here/check-keybinds.py" "$work/keys.controls.json" \
+	"$wb/default_keybinds.json" "PlayStation 2 Controllers" > "$work/keys.txt" 2>&1; then
+	report "keybinds" PASS "$(cat "$work/keys.txt")"
+else
+	report "keybinds" FAIL "$(head -1 "$work/keys.txt")"
 fi
 
 echo
