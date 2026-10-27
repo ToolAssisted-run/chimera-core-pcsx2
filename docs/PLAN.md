@@ -1250,11 +1250,8 @@ person.
 L2 and R2 were on 1 and 2, the arcade panel's coins and drums on 5 to 0,
 Select and Service on RightShift alone, and a trigger on LeftControl. They are
 on Number1 and so on, Shift and RightShift, Ctrl and LeftCtrl. Chimera hands a
-key to the bindings under one name: the name its DistinctKeyNameOverrides
-gives it ("Number1", "Enter", "Backtick", "KeypadAdd") or else its DistinctKey
-name ("Up"); and unless told otherwise it reads the left and right Shift, Ctrl
-and Alt as one key each, "Shift", "Ctrl" and "Alt" (Input.cs,
-Config.MergeLAndRModifierKeys). A default binding to another name never fired,
+key to the bindings under one name: the name Chimera gives it ("Number1", "Enter", "Backtick", "KeypadAdd") or else its own name ("Up"); and unless told otherwise it reads the left and right Shift, Ctrl
+and Alt as one key each, "Shift", "Ctrl" and "Alt". A default binding to another name never fired,
 so those controls shipped unbound on the keyboard. Checked on a virtual X display: with 1,
 Return, left Shift and Up held, Chimera reports Number1, Enter, Shift and Up.
 Left and right names stay beside the merged one, for a setup with the merging
