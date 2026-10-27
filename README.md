@@ -28,8 +28,8 @@ patch also makes Chimera show the picture at 16:9. Cheats are not applied.
 Chimera ships no cores and downloads nothing. Download the `.chimeraCore`
 package from this repository's
 [Releases](https://github.com/ToolAssisted-run/chimera-core-pcsx2/releases)
-page, or build it, and put it in the `Cores` folder beside `Chimera.exe`;
-File > Core Manager lists what is there. The same file runs on Linux and on
+page, or build it, and put it in the `cores` folder beside Chimera's program;
+Tools > Core Manager... lists what is there. The same file runs on Linux and on
 Windows. The games are yours to provide, and so is the bios: a copy of your
 own console's, or OpenPS2BIOS 0.2
 ([download](https://github.com/TamaribaEmu/OpenPS2BIOS/releases/tag/v0.2),
@@ -82,7 +82,7 @@ proven, so a green run never quietly means nothing was tested.
 ./waterbox/tests/run-frontend.sh                    # the package inside Chimera
 ```
 
-The frontend gate loads the package in Chimera itself (headless, under Mono)
+The frontend gate loads the package in Chimera itself (its window, run headless)
 and requires the machine it builds to be the machine the core gate signed off
 on, that a setting arrives through the frontend, and that the package's
 bindings become the frontend's defaults.
