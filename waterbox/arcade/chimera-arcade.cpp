@@ -266,12 +266,12 @@ const char* ChimeraArcadeInit(int board, u32 acram_bytes)
 		return nullptr;
 
 	if (acram_bytes > ACRAM_MAX_SIZE)
-		return "the board cannot carry that much RAM";
+		return "error.arcade_ram_too_large";  // keys of languages/en.json
 	if (acram_bytes != 0)
 	{
 		s_acram = static_cast<u8*>(std::calloc(1, acram_bytes));
 		if (!s_acram)
-			return "there is not enough memory for the board's RAM";
+			return "error.arcade_ram_no_memory";
 	}
 	ACRAM::SetMemory(s_acram, acram_bytes);
 	ACSRAM::Clear(0x00);

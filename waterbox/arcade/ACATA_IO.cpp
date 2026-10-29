@@ -128,7 +128,7 @@ static bool DetectDiscImageLayout() {
 		return true;
 	}
 	if (pvd_at(f, 16 * 2048 + 8)) {
-		ACATA::TH::open_error = "This disc image is a corrupted dump (truncated sectors). A clean dump of this disc is required.";
+		ACATA::TH::open_error = "error.truncated_dump";
 		Console.Error("ACATA: this disc image is a corrupted dump (truncated sectors), a clean dump of this disc is required.");
 		return false;
 	}

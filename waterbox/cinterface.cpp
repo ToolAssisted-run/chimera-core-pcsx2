@@ -102,6 +102,13 @@
 #define MAX_HEIGHT 2048
 #define MAX_SAMPLES 4096
 
+/* A text a person reads is a key of languages/en.json, each of its
+ * arguments after a TEXT_ARG, and a text of several puts a TEXT_LINE before
+ * each (chimera docs/translations.md). Each is a string of its own so the
+ * byte after it is never read as more of its hex. */
+#define TEXT_ARG "\x1f"
+#define TEXT_LINE "\x1d"
+
 static char g_loadError[512];
 ECL_INVISIBLE static uint32_t g_video[MAX_WIDTH * MAX_HEIGHT];
 static int g_videoWidth = 640;
@@ -428,9 +435,7 @@ static bool ResolveGunBinds(bool verbose)
 			if (g_gunBind[port][i] >= 0)
 				continue;
 			snprintf(g_loadError, sizeof(g_loadError),
-				"the GunCon 2 in port %d has no control called \"%s\". This core's "
-				"wire is keyed by the names the emulated gun declares, and that one "
-				"is gone - the pin this core is built against moved underneath it.",
+				"error.guncon_control" TEXT_ARG "%d" TEXT_ARG "%s",
 				port + 1, kGunBinds[i].name);
 			return false;
 		}
@@ -1337,14 +1342,14 @@ static const char* MountArcadeMedia(VMBootParameters& boot, bool verbose)
 	char name[512];
 	if (wbx_slot_count("arcademedia") <= 0
 		|| wbx_slot_name("arcademedia", 0, name, sizeof(name)) == nullptr)
-		return "this machine is a NAMCO board and the project has no game media in it";
+		return "error.no_media";
 	if (!FileSystem::FileExists(name))
-		return "the game's media is not where the project said it was";
+		return "error.media_missing";
 
 	ACATA::SetEnv("", name, kind);
 	if (ACATA::TH::IO_OpenImage() != 0)
 		return ACATA::TH::open_error.empty()
-			? "the board's drive cannot read this image" : ACATA::TH::open_error.c_str();
+			? "error.media_unreadable" : ACATA::TH::open_error.c_str();
 
 	boot.source_type = CDVD_SourceType::NoDisc;
 	if (!strcmp(kind, "CD"))
@@ -1423,10 +1428,7 @@ static bool PlanSaveData(char* err, size_t errsz)
 			if (!EndsWithNoCase(entry, ".ps2"))
 			{
 				snprintf(err, errsz,
-					"this machine does not read save data called \"%s\". It reads memory cards "
-					"(.ps2 files: memcard1.ps2 and memcard2.ps2, the names Export Save Data writes, "
-					"PCSX2's own Mcd001.ps2 and Mcd002.ps2, or a card under any other name, which "
-					"goes in slot 1 and then slot 2) and bios.nvm.", entry);
+					"error.save_name" TEXT_ARG "%s", entry);
 				return false;
 			}
 			if (nothers < 8)
@@ -1437,7 +1439,7 @@ static bool PlanSaveData(char* err, size_t errsz)
 		 * is two cards, and which one is in the machine would be a guess */
 		if (g_cardFile[card][0])
 		{
-			snprintf(err, errsz, "the save data carries two cards for slot %d, %s and %s - keep one",
+			snprintf(err, errsz, "error.two_cards" TEXT_ARG "%d" TEXT_ARG "%s" TEXT_ARG "%s",
 				card + 1, g_cardFile[card], entry);
 			return false;
 		}
@@ -1456,7 +1458,7 @@ static bool PlanSaveData(char* err, size_t errsz)
 		if (card < 0)
 		{
 			snprintf(err, errsz,
-				"the save data carries more memory cards than the console's two slots (%s, %s and %s) - keep two",
+				"error.three_cards" TEXT_ARG "%s" TEXT_ARG "%s" TEXT_ARG "%s",
 				g_cardFile[0], g_cardFile[1], others[i]);
 			return false;
 		}
@@ -1469,8 +1471,7 @@ static bool PlanSaveData(char* err, size_t errsz)
 		if (g_cardFile[card][0] && !present)
 		{
 			snprintf(err, errsz,
-				"the save data carries a card for slot %d (%s), but there is no card in slot %d: "
-				"switch the Memory Card %d setting on", card + 1, g_cardFile[card], card + 1, card + 1);
+				"error.card_off" TEXT_ARG "%d" TEXT_ARG "%s" TEXT_ARG "%d" TEXT_ARG "%d", card + 1, g_cardFile[card], card + 1, card + 1);
 			return false;
 		}
 	}
@@ -1614,13 +1615,12 @@ static std::string PatchSettingsJson(const std::string& serial, u32 crc, size_t*
 		if (!about.empty() && about.back() != '.' && about.back() != '!' && about.back() != '?')
 			about += ".";
 		if (!info.author.empty())
-			about += (about.empty() ? "" : " ") + std::string("By ") + info.author + ".";
-		about += (about.empty() ? "" : " ") + std::string(
-			"From PCSX2's patch collection. It changes the game's own code, so a movie made with it plays back only with it.");
+			about += (about.empty() ? "" : TEXT_LINE) + std::string("game_setting.patch_by" TEXT_ARG) + info.author;
+		about += (about.empty() ? "" : TEXT_LINE) + std::string("game_setting.patch_about");
 		if (json.size() > 1)
 			json += ",";
 		json += "{\"name\":" + JsonQuote(std::string(kPatchSettingPrefix) + info.name)
-			+ ",\"display\":" + JsonQuote("Use Custom Patch: Enable " + info.name)
+			+ ",\"display\":" + JsonQuote("game_setting.patch" TEXT_ARG + info.name)
 			+ ",\"description\":" + JsonQuote(about)
 			+ ",\"type\":\"bool\",\"default\":false}";
 	}
@@ -1650,9 +1650,8 @@ static const char* SettlePatchSettings()
 		if (std::none_of(have.begin(), have.end(), [&](const Patch::PatchInfo& p) { return p.name == name; }))
 		{
 			snprintf(why, sizeof(why),
-				"the project turns on the patch \"%s\", which PCSX2's patch collection in this core does not have "
-				"for this game (%s, checksum %08X). Turn it off in the project's settings.",
-				name.c_str(), serial.empty() ? "no serial" : serial.c_str(), crc);
+				"error.no_such_patch" TEXT_ARG "%s" TEXT_ARG "%s" TEXT_ARG "%08X", name.c_str(),
+				serial.empty() ? "suggest.no_serial" : serial.c_str(), crc);
 			return why;
 		}
 	}
@@ -1708,14 +1707,14 @@ ECL_EXPORT const char* SuggestSettings(void)
 	const std::string settings = read ? PatchSettingsJson(serial, crc, &count) : "[]";
 	char note[384];
 	if (!read)
-		snprintf(note, sizeof(note), "The game could not be read, so the patches PCSX2's patch collection has for it are not listed.");
+		snprintf(note, sizeof(note), "suggest.unreadable");
 	else if (count == 0)
-		snprintf(note, sizeof(note), "PCSX2's patch collection has no patches for this game (%s, checksum %08X).",
-			serial.empty() ? "no serial" : serial.c_str(), crc);
+		snprintf(note, sizeof(note), "suggest.no_patches" TEXT_ARG "%s" TEXT_ARG "%08X",
+			serial.empty() ? "suggest.no_serial" : serial.c_str(), crc);
 	else
 		snprintf(note, sizeof(note),
-			"PCSX2's patch collection has %zu patch%s for this game (%s, checksum %08X), listed as Use Custom Patch settings, all off.",
-			count, count == 1 ? "" : "es", serial.empty() ? "no serial" : serial.c_str(), crc);
+			"suggest.patches" TEXT_ARG "%zu" TEXT_ARG "%s" TEXT_ARG "%08X",
+			count, serial.empty() ? "suggest.no_serial" : serial.c_str(), crc);
 	answer = "{\"values\":{},\"note\":" + JsonQuote(note) + ",\"settings\":" + settings + "}";
 	return answer.c_str();
 }
@@ -1811,15 +1810,14 @@ ECL_EXPORT int Init(void)
 	if (s_chimera_vulkan_wanted && !s_chimera_vulkan_bridge)
 	{
 		snprintf(g_loadError, sizeof(g_loadError),
-			"the renderer setting is vulkan-hw, and no Vulkan was handed over (this computer may have no Vulkan "
-			"driver, or this Chimera is older than its Vulkan bridge).");
+			"error.no_vulkan_bridge");
 		return 0;
 	}
 #endif
 
 	if (!VMManager::Internal::CPUThreadInitialize())
 	{
-		snprintf(g_loadError, sizeof(g_loadError), "the machine would not initialise");
+		snprintf(g_loadError, sizeof(g_loadError), "error.not_initialised");
 		return 0;
 	}
 
@@ -1911,7 +1909,7 @@ ECL_EXPORT int Init(void)
 		else
 		{
 			snprintf(g_loadError, sizeof(g_loadError),
-				"this machine is a NAMCO board and the project has no boot program in it");
+				"error.no_boot_program");
 			return 0;
 		}
 
@@ -1944,10 +1942,7 @@ ECL_EXPORT int Init(void)
 		if (kind == ProgramKind::IopModule)
 		{
 			snprintf(g_loadError, sizeof(g_loadError),
-				"\"%s\" is an IOP module (.irx). Those are drivers a program loads "
-				"while it runs - a memory card driver, a pad driver - and not "
-				"something the machine can be started on. Give it the program "
-				"instead: a disc image, or the .elf that would have loaded this.",
+				"error.iop_module" TEXT_ARG "%s",
 				file);
 			return 0;
 		}

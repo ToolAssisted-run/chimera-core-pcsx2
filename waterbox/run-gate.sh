@@ -602,8 +602,8 @@ printf '{"patch:Widescreen 16:9":true}' > "$wn/settings"
 pr_nat="$("$nat/run-native" "$wn" --frames 1 2>&1)"; pr_nat_rc=$?
 pr_box="$("$nat/run-wbx" "$gst/core.wbx" "$wn" --frames 1 2>&1)"; pr_box_rc=$?
 if [ "$pr_nat_rc" -ne 0 ] && [ "$pr_box_rc" -ne 0 ] \
-	&& grep -q 'turns on the patch "Widescreen 16:9", which PCSX2' <<< "$pr_nat" \
-	&& grep -q 'turns on the patch "Widescreen 16:9", which PCSX2' <<< "$pr_box"; then
+	&& grep -q 'error.no_such_patch.Widescreen 16:9.' <<< "$pr_nat" \
+	&& grep -q 'error.no_such_patch.Widescreen 16:9.' <<< "$pr_box"; then
 	report "pnach:refused" PASS "a patch the game does not have is refused and named, in both flavors"
 else
 	report "pnach:refused" FAIL "native rc=$pr_nat_rc sandbox rc=$pr_box_rc: $(grep -i patch <<< "$pr_box" | tail -1)"
@@ -907,7 +907,7 @@ elif ! cmp -s "$mounted/memcard1.ps2" "$sdp/Mcd001.ps2" || [ -e "$sdp/memcard1.p
 	report "savedata:pcsx2-name" FAIL "the card did not come back as Mcd001.ps2: $(ls "$sdp" | tr '\n' ' ')"
 else
 	case "$both" in
-		*"two cards for slot 1"*) report "savedata:pcsx2-name" PASS "Mcd001.ps2 is slot 1's card, native == sandbox; both names refused" ;;
+		*"error.two_cards"?"1"?*) report "savedata:pcsx2-name" PASS "Mcd001.ps2 is slot 1's card, native == sandbox; both names refused" ;;
 		*) report "savedata:pcsx2-name" FAIL "a project with both names was not refused: $both" ;;
 	esac
 fi
@@ -959,7 +959,7 @@ elif [ "$pair" != "Other.ps2 THPS.ps2" ] || [ "$after_named" != "Other.ps2 memca
 	report "savedata:any-name" FAIL "two cards came back as [$pair], and beside memcard1.ps2 as [$after_named]"
 else
 	case "$third|$off|$notcard" in
-		*"more memory cards than the console's two slots"*"|"*"switch the Memory Card 2 setting on"*"|"*"does not read save data called \"notes.txt\""*)
+		*"error.three_cards"*"|"*"error.card_off"*"2"*"|"*"error.save_name"?"notes.txt"*)
 			report "savedata:any-name" PASS "THPS.ps2 is slot 1's card, native == sandbox, and leaves as THPS.ps2; two such cards fill both slots; a third, a card for a switched-off slot and notes.txt are refused" ;;
 		*) report "savedata:any-name" FAIL "refusals: [$third] [$off] [$notcard]" ;;
 	esac
@@ -1381,7 +1381,7 @@ else
 		# The same three settings under the Vulkan renderer (chimera issue 248),
 		# held to the same two things - and to the machine OpenGL ran.
 		vpBase="$(gpRun vkbase '{"renderer":"vulkan-hw"}')"
-		if grep -q 'no Vulkan was handed over' "$work/gp.vkbase.txt" "$work/gp.vkbase.err"; then
+		if grep -q 'error.no_vulkan_bridge' "$work/gp.vkbase.txt" "$work/gp.vkbase.err"; then
 			report "vk:settings" SKIP "this computer handed the core no Vulkan"
 		elif [ -z "$vpBase" ] || ! grep -q "^frames=$gfxFrames\$" "$work/gp.vkbase.txt"; then
 			report "vk:settings" FAIL "the baseline run did not complete $gfxFrames frames: $(grep -v '^\s*$' "$work/gp.vkbase.err" | tail -1 | cut -c1-100)"
@@ -1582,7 +1582,7 @@ else
 		for leg in $vk_legs; do
 			report "$leg" SKIP "run-wbx was built without the bridges' host half (meson configure -Dgl_bridge=true)"
 		done
-	elif grep -q 'no Vulkan was handed over' "$work/vk.v300.txt" "$work/vk.v300.err"; then
+	elif grep -q 'error.no_vulkan_bridge' "$work/vk.v300.txt" "$work/vk.v300.err"; then
 		for leg in $vk_legs; do
 			report "$leg" SKIP "this computer handed the core no Vulkan: $(grep -h -m1 '^vulkan bridge:' "$work/vk.v300.err" | cut -c1-120)"
 		done
