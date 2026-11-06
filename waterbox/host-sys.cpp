@@ -98,13 +98,20 @@ namespace CrashHandler
 } // namespace CrashHandler
 
 /* ---------------------------------------------------------------------------
- * The pinned CPU: one core, one processor, SSE4 and no more. cpuinfo's own
- * accessors are inline over these, so the whole library reduces to a zeroed
- * feature struct and a handful of empty descriptions.
+ * The pinned CPU: one core, one processor, SSE4 and no more (on aarch64, the
+ * baseline: NEON, which the build assumes rather than asks about). cpuinfo's
+ * own accessors are inline over these, so the whole library reduces to a
+ * zeroed feature struct and a handful of empty descriptions.
  */
 extern "C"
 {
+#if defined(__x86_64__)
 	struct cpuinfo_x86_isa cpuinfo_isa = {};
+#elif defined(__aarch64__)
+	struct cpuinfo_arm_isa cpuinfo_isa = {};
+#else
+#error miniBox runs on x86-64 and aarch64 only
+#endif
 
 	static const struct cpuinfo_processor s_processor = {};
 	static const struct cpuinfo_core s_core = {};

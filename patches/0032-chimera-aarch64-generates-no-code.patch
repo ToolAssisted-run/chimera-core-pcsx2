@@ -1,0 +1,135 @@
+diff --git a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+index bbf6d96..b2fdbd3 100644
+--- a/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
++++ b/pcsx2/GS/Renderers/SW/GSDrawScanline.cpp
+@@ -32,6 +32,10 @@ static __forceinline const GSScanlineGlobalData& GlobalFromLocal(const GSScanlin
+ 	return *local.gd;
+ }
+ 
++#ifdef CHIMERA_NO_CODE_GENERATORS
++GSDrawScanline::GSDrawScanline() = default;
++GSDrawScanline::~GSDrawScanline() = default;
++#else
+ GSDrawScanline::GSDrawScanline()
+ 	: m_sp_map("GSSetupPrim")
+ 	, m_ds_map("GSDrawScanline")
+@@ -44,6 +48,7 @@ GSDrawScanline::~GSDrawScanline()
+ 	if (const size_t used = GSCodeReserve::GetMemoryUsed(); used > 0)
+ 		DevCon.WriteLn("SW JIT generated %zu bytes of code", used);
+ }
++#endif
+ 
+ bool GSDrawScanline::ShouldUseCDrawScanline(u64 key)
+ {
+@@ -121,10 +126,12 @@ void GSDrawScanline::BeginDraw(const GSRasterizerData& data, GSScanlineLocalData
+ 
+ void GSDrawScanline::ResetCodeCache()
+ {
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	Console.Warning("GS Software JIT cache overflow, resetting.");
+ 	m_sp_map.Clear();
+ 	m_ds_map.Clear();
+ 	GSCodeReserve::ResetMemory();
++#endif
+ }
+ 
+ bool GSDrawScanline::SetupDraw(GSRasterizerData& data)
+@@ -204,12 +211,16 @@ bool GSDrawScanline::SetupDraw(GSRasterizerData& data)
+ 
+ void GSDrawScanline::UpdateDrawStats(u64 frame, u64 ticks, int actual, int total, int prims)
+ {
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	m_ds_map.UpdateStats(frame, ticks, actual, total, prims);
++#endif
+ }
+ 
+ void GSDrawScanline::PrintStats()
+ {
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	m_ds_map.PrintStats();
++#endif
+ }
+ 
+ #if _M_SSE >= 0x501
+diff --git a/pcsx2/GS/Renderers/SW/GSDrawScanline.h b/pcsx2/GS/Renderers/SW/GSDrawScanline.h
+index 48612d3..b0b684a 100644
+--- a/pcsx2/GS/Renderers/SW/GSDrawScanline.h
++++ b/pcsx2/GS/Renderers/SW/GSDrawScanline.h
+@@ -5,6 +5,10 @@
+ 
+ #include "GS/GSState.h"
+ 
++// chimera: CHIMERA_NO_CODE_GENERATORS is a build with no code generator in it
++// at all - not the scanline JIT, not its function maps, not the assembler they
++// are written against (vixl on arm64). The C++ scanline path is all there is.
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ #ifdef ARCH_X86
+ #include "GS/Renderers/SW/GSSetupPrimCodeGenerator.all.h"
+ #include "GS/Renderers/SW/GSDrawScanlineCodeGenerator.all.h"
+@@ -13,6 +17,7 @@
+ #include "GS/Renderers/SW/GSSetupPrimCodeGenerator.arm64.h"
+ #include "GS/Renderers/SW/GSDrawScanlineCodeGenerator.arm64.h"
+ #endif
++#endif
+ 
+ struct GSScanlineLocalData;
+ 
+@@ -22,8 +27,10 @@ class GSRasterizerData;
+ 
+ class GSDrawScanline : public GSVirtualAlignedClass<32>
+ {
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	friend GSSetupPrimCodeGenerator;
+ 	friend GSDrawScanlineCodeGenerator;
++#endif
+ 
+ public:
+ 	GSDrawScanline();
+@@ -52,8 +59,10 @@ public:
+ 	void PrintStats();
+ 
+ private:
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	GSCodeGeneratorFunctionMap<GSSetupPrimCodeGenerator, u64, SetupPrimPtr> m_sp_map;
+ 	GSCodeGeneratorFunctionMap<GSDrawScanlineCodeGenerator, u64, DrawScanlinePtr> m_ds_map;
++#endif
+ 
+ 	static void CSetupPrim(const GSVertexSW* vertex, const u16* index, const GSVertexSW& dscan, GSScanlineLocalData& local);
+ 	static void CDrawScanline(int pixels, int left, int top, const GSVertexSW& scan, GSScanlineLocalData& local);
+diff --git a/pcsx2/VMManager.cpp b/pcsx2/VMManager.cpp
+index c34ba9b..5863d97 100644
+--- a/pcsx2/VMManager.cpp
++++ b/pcsx2/VMManager.cpp
+@@ -2682,7 +2682,11 @@ void VMManager::InitializeCPUProviders()
+ 	vu1Thread.Open();
+ #endif
+ 
++	// chimera: nothing to generate in a build without code generators (the
++	// VIF unpack in Vif_Unpack.cpp takes its C functions instead)
++#ifndef CHIMERA_NO_CODE_GENERATORS
+ 	VifUnpackSSE_Init();
++#endif
+ }
+ 
+ void VMManager::ShutdownCPUProviders()
+diff --git a/pcsx2/Vif_Unpack.cpp b/pcsx2/Vif_Unpack.cpp
+index 7326a96..d55aee8 100644
+--- a/pcsx2/Vif_Unpack.cpp
++++ b/pcsx2/Vif_Unpack.cpp
+@@ -484,7 +484,16 @@ __ri void _nVifUnpackLoop(const u8* data)
+ 	{
+ 		u8* dest = getVUptr(idx, vif.tag.addr);
+ 
++		// chimera: with no code generators, the unpackers VifUnpackSSE_Init
++		// would have generated do not exist. The C unpacks beside them take
++		// every unpack instead: they are upstream's own for a nonzero MODE, the
++		// same table carries a MODE-0 set with and without the mask, and they
++		// read the mask row and column straight from the VIF.
++#ifdef CHIMERA_NO_CODE_GENERATORS
++		if (true)
++#else
+ 		if (doMode)
++#endif
+ 		{
+ 			//if (1) {
+ 			ft(dest, data);

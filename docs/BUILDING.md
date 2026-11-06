@@ -8,6 +8,30 @@ clone on a public Ubuntu runner. Cores are built on Linux; the same package
 file runs on Linux and on Windows, because the guest inside it is run by
 Chimera's sandbox (miniBox) on either.
 
+A package is machine code for one CPU, the CPU it was built on: x86-64, or
+aarch64 (miniBox's aarch64 machine, which is in miniBox's main; Chimera's
+aarch64 build is ToolAssisted-run/chimera#309, until it merges the branch
+`aarch64` of https://github.com/P-AS/chimera, whose `extern/chimera-common-minibox`
+is upstream's miniBox).
+The steps are the same on both. The aarch64 build differs in what it is:
+
+- PCSX2 has no recompilers for arm64, so that core has its interpreters alone.
+  Its package declares `cpu_core` as `interpreter` only, and the core refuses
+  a project that asks for the recompilers (gate check `cpu:cores`).
+- Nothing in it generates code (`-DCHIMERA_NO_CODE_GENERATORS`, patch 0032):
+  the VIF unpacks take upstream's C functions and the rasteriser its C++ path,
+  so vixl, the arm64 code generators and `-Djit_rasterizer=true` are not
+  available there.
+- It is built with `-ffixed-x18`, so the package is not tied to Linux, and
+  `waterbox/check-portable.sh` holds every guest link to that (below).
+- Its thread pointer is miniBox's slot, not TPIDR_EL0 (where macOS keeps the
+  CPU number): the link makes `core-linked.wbx`, and miniBox's
+  `wbx-tp-rewrite.py` finishes it as `core.wbx`, every read of the register
+  the compiler emitted now a read of the slot. miniBox's host refuses an
+  aarch64 `core.wbx` that still reads the register.
+- Pages are 4 KiB, as on x86-64, whatever the host's are (Asahi's 16 KiB):
+  `OVERRIDE_HOST_PAGE_SIZE=0x1000`, for both flavors.
+
 Names used below:
 
 - `<chimera>` - a checkout of https://github.com/ToolAssisted-run/chimera.
@@ -25,7 +49,9 @@ mb="$chimera/extern/chimera-common-minibox"
 
 ## Requirements
 
-**Operating system.** CI builds on GitHub's `ubuntu-latest` runner, x86-64.
+**Operating system.** CI builds on GitHub's `ubuntu-latest` runner, x86-64,
+and on `ubuntu-26.04-arm`, aarch64. The aarch64 build has also been made on
+Fedora Asahi Remix 44 (16 KiB pages).
 
 **Packages for the core and the core gate** (workflow job `core-gate`). The
 second line builds Chimera's engine, for `chimera-run`, and the GPU bridges'
@@ -146,7 +172,7 @@ directories in an `actions/cache@v4` cache; on your machine they simply stay.
 
 ### Patches
 
-`extern/pcsx2` is pinned to pristine upstream. The 32 numbered patch files in
+`extern/pcsx2` is pinned to pristine upstream. The 33 numbered patch files in
 `patches/` (two of them share the number 0011) are applied to it by
 `waterbox/apply-patches.sh`, in file-name order. There is no separate step:
 `meson.build` runs the script at configure time, so both
@@ -160,7 +186,7 @@ The script judges the series as a whole:
 - If the working tree is pristine it applies the series and prints
   `applied: <patch>` for each.
 - If the working tree is exactly what the series leaves behind it prints
-  `already applied: all 32 patches` and changes nothing.
+  `already applied: all 33 patches` and changes nothing.
 - Anything in between is an error that names the files and prints the reset
   command.
 
@@ -290,14 +316,19 @@ is a file a person puts in Chimera's `Cores` folder.
   Tools > Core Manager....
 - **Without building.** Download the package from this repository's Releases
   page, https://github.com/ToolAssisted-run/chimera-core-pcsx2/releases, and
-  put it in the same folder. CI publishes a dated `nightly-YYYY-MM-DD` release
+  put it in the same folder. A release has `pcsx2-<version>-x64.chimeraCore`
+  and `pcsx2-<version>-arm64.chimeraCore`: you most likely want the x64 one;
+  take the arm64 one only if you know you are using an arm64 device. Put only
+  one of them in the folder. CI publishes a dated `nightly-YYYY-MM-DD` release
   from the scheduled run, when `main` moved since the last one.
 
 Tools > Core Manager... lists what is in the folder; Refresh List rescans it.
 
 A package's version is the commit it was built from. A hand-built package
 carries `+local` and is for testing; Chimera's publishing script refuses to
-publish one. A published package is named `pcsx2-<version>.chimeraCore` and
+publish one. A published package is named
+`pcsx2-<version>-<x64|arm64>.chimeraCore` (before packages carried their CPU,
+`pcsx2-<version>.chimeraCore`, which is x64) and
 the one built here `pcsx2.chimeraCore`; Chimera identifies a package by its
 content, not by its file name.
 
@@ -364,7 +395,9 @@ own test program on its own disc (source, build and licence in
 a second program of ours (in `tests/own/chimera-fputest/`) that runs every
 FPU instruction on 634,880 sets of operands, it runs `fpu:full-mode`: in
 the FPU's Full clamp mode, which 158 titles use, the interpreter's results
-are the recompiler's (patch 0031).
+are the recompiler's (patch 0031). On aarch64 there is no recompiler to compare
+with: both discs run on the interpreter, must finish in Full mode, and the
+check says SKIP.
 
 **More content, more checks:**
 
