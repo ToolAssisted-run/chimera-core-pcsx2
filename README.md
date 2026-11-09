@@ -23,15 +23,25 @@ PCSX2's patch collection is compiled in too: each patch it has for a game
 project, "Use Custom Patch: Enable ...", off unless turned on. A widescreen
 patch also makes Chimera show the picture at 16:9. Cheats are not applied.
 
+It is built for x86-64 and for aarch64 (on aarch64 Chimera, whose
+miniBox is upstream's), one package per CPU. PCSX2 has no recompilers for arm64, so the
+aarch64 package has its interpreters alone.
+
 ## Using it in Chimera
 
-Chimera ships no cores and downloads nothing. Download the `.chimeraCore`
-package from this repository's
+Chimera ships no cores and downloads nothing. Download the core's package
+from this repository's
 [Releases](https://github.com/ToolAssisted-run/chimera-core-pcsx2/releases)
 page, or build it, and put it in the `cores` folder beside Chimera's program;
-Tools > Core Manager... lists what is there. The same file runs on Linux and on
-Windows. The games are yours to provide, and so is the bios: a copy of your
-own console's, or OpenPS2BIOS 0.2
+Tools > Core Manager... lists what is there.
+
+Each release has two packages, one per CPU: `pcsx2-<version>-x86_64.chimeraCore`
+and `pcsx2-<version>-aarch64.chimeraCore`. **On Windows or Linux you most likely
+want the x86_64 one.** Take the aarch64 one only if you know you are using an ARM
+device; on a Mac, aarch64 for Apple silicon and x86_64 for an Intel Mac. Put only
+one of them in the `cores` folder. The same file runs on Linux and on Windows. The
+games are yours to provide, and so is the bios: a copy of your own console's,
+or OpenPS2BIOS 0.2
 ([download](https://github.com/TamaribaEmu/OpenPS2BIOS/releases/tag/v0.2),
 Boot ROM setting "OpenPS2BIOS 0.2"), which is free but does less, so a game
 may not run on it.

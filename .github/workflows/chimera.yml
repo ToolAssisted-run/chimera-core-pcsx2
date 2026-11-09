@@ -19,6 +19,14 @@ name: chimera waterbox core
 # picture, an executable with no disc) reports SKIP and says why, and runs by
 # hand against the developer's own retail bios, as does everything that needs
 # a game's disc (waterbox/run-gate.sh says so on every line).
+#
+# Both gates run twice, once per host CPU, on a runner of that CPU: x86-64
+# against Chimera's public main, and aarch64 (miniBox's aarch64 machine, where
+# PCSX2 has only its interpreters, so the OpenPS2BIOS tier runs on them)
+# against Chimera's public main too, which builds aarch64 since
+# ToolAssisted-run/chimera#309 merged (2026-11-06), and miniBox is upstream's.
+# Both must pass for a release, and both packages are in it, each named by its
+# CPU: pcsx2-<version>-x86_64.chimeraCore and pcsx2-<version>-aarch64.chimeraCore.
 
 on:
   pull_request:
@@ -43,15 +51,25 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
-env:
-  CHIMERA_REF: main
-
 jobs:
 
   core-gate:
-    name: core gate (builds, refuses without a bios, runs on OpenPS2BIOS, GPU bridges on software drivers)
-    runs-on: ubuntu-latest
+    name: core gate ${{ matrix.arch }} (builds, refuses without a bios, runs on OpenPS2BIOS, GPU bridges on software drivers)
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    strategy:
+      # one CPU's failure says nothing about the other's
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            chimera-repo: ToolAssisted-run/chimera
+            chimera-ref: main
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+            chimera-repo: ToolAssisted-run/chimera
+            chimera-ref: main
     steps:
       - uses: actions/checkout@v6
         with:
@@ -60,8 +78,8 @@ jobs:
       - name: Check out Chimera (for the miniBox waterbox host and toolchain)
         uses: actions/checkout@v6
         with:
-          repository: ToolAssisted-run/chimera
-          ref: ${{ env.CHIMERA_REF }}
+          repository: ${{ matrix.chimera-repo }}
+          ref: ${{ matrix.chimera-ref }}
           path: chimera-checkout
           submodules: false
 
@@ -89,7 +107,7 @@ jobs:
           path: |
             chimera-checkout/extern/chimera-common-minibox/build/meson-linux
             chimera-checkout/extern/chimera-common-minibox/build/meson-cpp
-          key: guest-cpp-${{ runner.os }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/.git') }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/meson.build') }}
+          key: guest-cpp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/.git') }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/meson.build') }}
 
       - name: Build miniBox (host + C++ guest toolchain)
         run: |
@@ -152,7 +170,7 @@ jobs:
       - name: Upload core.wbx
         uses: actions/upload-artifact@v7
         with:
-          name: core-wbx
+          name: core-wbx-${{ matrix.arch }}
           path: |
             build/meson-guest/core.wbx
             waterbox/waterbox.config
@@ -165,9 +183,21 @@ jobs:
     # this repository's own test disc; the one that needs the console's
     # default retail bios says SKIP. This job also BUILDS the package, which is
     # what publishes the artifact and proves the packaging is deterministic.
-    name: frontend gate (Chimera)
-    runs-on: ubuntu-latest
+    name: frontend gate ${{ matrix.arch }} (Chimera)
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            chimera-repo: ToolAssisted-run/chimera
+            chimera-ref: main
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+            chimera-repo: ToolAssisted-run/chimera
+            chimera-ref: main
     steps:
       - uses: actions/checkout@v6
         with:
@@ -176,8 +206,8 @@ jobs:
       - name: Check out Chimera
         uses: actions/checkout@v6
         with:
-          repository: ToolAssisted-run/chimera
-          ref: ${{ env.CHIMERA_REF }}
+          repository: ${{ matrix.chimera-repo }}
+          ref: ${{ matrix.chimera-ref }}
           path: chimera-checkout
           submodules: recursive
 
@@ -210,7 +240,7 @@ jobs:
           path: |
             chimera-checkout/extern/chimera-common-minibox/build/meson-linux
             chimera-checkout/extern/chimera-common-minibox/build/meson-cpp
-          key: guest-cpp-${{ runner.os }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/.git') }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/meson.build') }}
+          key: guest-cpp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/.git') }}-${{ hashFiles('chimera-checkout/extern/chimera-common-minibox/meson.build') }}
 
       - name: Build miniBox (host + C++ guest toolchain)
         run: |
@@ -252,9 +282,12 @@ jobs:
         run: ./waterbox/tests/run-frontend.sh --chimera-root "$GITHUB_WORKSPACE/chimera-checkout"
 
       - name: Publish the core package
+        # as pcsx2-<sha>-<arch>: the shared publish names it for the release,
+        # pcsx2-<version>-<arch>.chimeraCore, and checks its core.wbx is built
+        # for that CPU
         uses: actions/upload-artifact@v7
         with:
-          name: pcsx2-${{ github.sha }}
+          name: pcsx2-${{ github.sha }}-${{ matrix.arch }}
           path: chimera-checkout/build/Cores/pcsx2.chimeraCore
           if-no-files-found: error
 
@@ -262,7 +295,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-gate-work
+          name: frontend-gate-work-${{ matrix.arch }}
           path: waterbox/tests/work/
 
   publish:
@@ -274,7 +307,8 @@ jobs:
     #
     # The logic is Chimera's tools/publish-core.sh, called through one reusable
     # workflow, so all fifteen cores publish the same way and there is one place
-    # to change it.
+    # to change it, which publishes a package per CPU (x86_64 and aarch64, the
+    # names publish-core.sh takes since Chimera's 09d87d78a).
     name: publish
     needs: [ core-gate, frontend-gate ]
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -285,3 +319,4 @@ jobs:
       core-id: pcsx2
       artifact: pcsx2-${{ github.sha }}
       package: pcsx2.chimeraCore
+      arches: x86_64 aarch64
