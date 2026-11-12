@@ -24,3 +24,11 @@ free to distribute goes here instead, where tracking it needs no exception.
   AFL-2.0 for the ps2sdk code it is linked with; newlib's) are in
   `chimera-fputest/`. It runs on a retail BIOS and on OpenPS2BIOS alike, and
   is what the gate's `fpu:full-mode` check runs.
+- `chimera-readbacktest.iso` - this repository's test of what a game reads
+  back of what it drew: every frame it draws a square and copies it within
+  the GS's memory as 16-bit pixels, which the hardware renderers do by
+  reading the square back from the graphics card. Source, build script and
+  licences (MIT for the program; AFL-2.0 for the ps2sdk and gsKit code it is
+  linked with; newlib's) are in `chimera-readbacktest/`. It runs on a retail
+  BIOS and on OpenPS2BIOS alike, and is what the gate's `vk:readback` check
+  runs (chimera issue 560).

@@ -1518,3 +1518,53 @@ The recompiler, the default, is unchanged.
 
 Test: `fpu:full-mode` (a bios). Negative control, 2026-11-04: with the patch
 taken out it fails, naming 264,333 differing results.
+
+## What the renderer reads back goes with the old device (chimera#560, 2026-11-12)
+
+WWE SmackDown! vs. RAW (USA) stopped the core under `vulkan-hw`, never under
+`opengl-hw` or `software`: going to a marker, back to an earlier one, then
+about twenty frames on. The core read garbage inside the Vulkan memory
+allocator: `VmaAllocator_T::GetFlushOrInvalidateRange` (offset 0x31bf48 of
+the core published on 2026-11-06, the offset the report shows) takes an
+allocation's memory type to index a table, and the allocation held
+something else.
+
+**What it was.** After a load the renderer is rebuilt on a new device, and
+both rebuilds - the one that keeps the drawn targets (gs-shadow.cpp) and
+upstream's own for a lost device (`GSreopen(true, false, ...)`) - keep the
+renderer and its texture cache. Two things those hold belong to the device
+and were kept with them: the texture cache's three download textures, made
+the first time a game reads back what it drew (a transfer out of the GS, or a
+copy the card cannot do, such as one that changes a pixel's size), and the
+two palettes the GPU palette fix (`gpuTargetCLUT` in the game database) draws
+into. The next readback after a load copied into the old device's buffer and
+asked the new device's allocator about the old one's allocation, whose memory
+had been freed with it. Upstream does the same in its lost-device path; on a
+desktop a device is rarely lost, and here every load replaces it.
+
+**The change.** The rebuild lets go of both with the old device, as it
+already did for this core's own download textures, and the next readback or
+palette makes them again on the new one. Patch 0032 lets gs-shadow.cpp reach
+the palettes (a `friend`, as patch 0026 does for the texture cache).
+
+**Measured.** `tests/own/chimera-readbacktest`, a program of ours, draws a
+square every frame and copies it within the GS's memory as 16-bit pixels,
+which the renderer does by reading the square back. With a state saved and
+loaded around every one of 120 frames, on lavapipe, the published core sent
+214 Vulkan commands with the old device's objects (210 on OpenPS2BIOS, from
+the disc), which the bridge refused - the last of them
+`vkCmdPipelineBarrier`, the barrier the download texture records on its own
+buffer. With the change it sends none. The machine (memory, sound, picture
+digests) is the straight run's either way: the old buffer's bytes never came
+back on lavapipe, and garbage in the allocator is what a game's heap makes of
+freed memory, not something a short program reproduces.
+
+Not measured: the report's game itself, which this computer does not have;
+Maximo, played through the report's steps seven times on lavapipe, never
+reads back and never stopped. The palettes are let go of by reading the code:
+no test turns the GPU palette fix on, since only the game database does that.
+
+Test: `vk:readback`. Negative control, 2026-11-12: run as the check runs it,
+the published core has 214 commands refused (210 on OpenPS2BIOS), so the
+check fails; the fixed core has none. The gate: 49 passed, 0 failed, 7
+skipped (each for a disc or a build this computer was not given).

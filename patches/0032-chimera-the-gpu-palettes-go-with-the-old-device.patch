@@ -1,0 +1,21 @@
+diff --git a/pcsx2/GS/GSClut.h b/pcsx2/GS/GSClut.h
+index 3e15c37..5d7b1e4 100644
+--- a/pcsx2/GS/GSClut.h
++++ b/pcsx2/GS/GSClut.h
+@@ -11,8 +11,16 @@
+ class GSLocalMemory;
+ class GSTexture;
+ 
++// chimera: the palettes the GPU palette fix draws into are textures of the
++// device, and a state load gives the renderer a new one while this object
++// stays. waterbox/gs-shadow.cpp lets go of them with the old device
++// (chimera issue 560), and nothing else reaches in here.
++struct ChimeraGSShadow;
++
+ class alignas(32) GSClut final : public GSAlignedClass<32>
+ {
++	friend struct ::ChimeraGSShadow;
++
+ 	static constexpr u32 CLUT_ALLOC_SIZE = 4096 * 2;
+ 
+ 	static const GSVector4i m_bm;

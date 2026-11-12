@@ -515,6 +515,40 @@ struct ChimeraGSShadow
 		return made;
 	}
 
+	/* WHAT THE RENDERER KEEPS OF THE DEVICE BESIDES ITS TARGETS. Both rebuilds
+	 * keep the renderer and its texture cache and replace the device under
+	 * them, and two things they hold belong to the device: the texture cache's
+	 * three download textures, made the first time a game reads back what it
+	 * drew (a transfer out of the GS, or a copy the card cannot do), and the
+	 * palettes the GPU palette fix draws into. Kept, they were the old
+	 * device's objects in the new device's hands. Under Vulkan the next
+	 * readback copied into the old device's buffer and asked the new
+	 * allocator about an allocation the old one had freed, whose memory held
+	 * whatever had been put there since (chimera issue 560: a game stopped in
+	 * the allocator some twenty frames after going back). They go with the
+	 * old device here, and the next readback or palette makes them again on
+	 * the new one. */
+	static void DropKeptDeviceObjects()
+	{
+		if (g_texture_cache)
+		{
+			g_texture_cache->m_color_download_texture.reset();
+			g_texture_cache->m_uint16_download_texture.reset();
+			g_texture_cache->m_uint32_download_texture.reset();
+		}
+		if (g_gs_renderer)
+		{
+			GSClut& clut = g_gs_renderer->m_mem.m_clut;
+			delete clut.m_gpu_clut4;
+			delete clut.m_gpu_clut8;
+			clut.m_gpu_clut4 = nullptr;
+			clut.m_gpu_clut8 = nullptr;
+			clut.m_current_gpu_clut = nullptr;
+			clut.m_last_gpu_clut = nullptr;
+			clut.m_gpu_clut_dirty = true;
+		}
+	}
+
 	/* The renderer's GL objects again, for the context the calls land on now.
 	 * With `keep`, the texture cache's targets and the deinterlacer's textures
 	 * come back holding what a state carried; without, everything is made
@@ -527,6 +561,7 @@ struct ChimeraGSShadow
 		const bool vulkan = OnVulkan();
 		/* the download textures are the old device's: they go with it */
 		ChimeraGSDropDownloads();
+		DropKeptDeviceObjects();
 		if (!usable)
 			return GSreopen(true, false, GSConfig.Renderer, std::nullopt);
 

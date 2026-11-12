@@ -376,7 +376,7 @@ are the recompiler's (patch 0031).
 | `gun:aims` | `PCSX2_GUN_DISC`, a GunCon 2 disc |
 | `gpu:picture` | `PCSX2_GFX_DISC` (and `PCSX2_GFX_FRAMES`), `run-wbx` built with `-Dgl_bridge=true`, and a GL context |
 | `gpu:bridge` | `run-wbx` built with `-Dgl_bridge=true`, a GL context, and a core built with the guest Mesa |
-| `vk:bridge`, `vk:machine`, `vk:picture`, `vk:rerecord` | the same `run-wbx`, and a Vulkan driver on this computer (Mesa's lavapipe will do: the packages `libvulkan1` and `mesa-vulkan-drivers`) |
+| `vk:bridge`, `vk:machine`, `vk:picture`, `vk:rerecord`, `vk:readback` | the same `run-wbx`, and a Vulkan driver on this computer (Mesa's lavapipe will do: the packages `libvulkan1` and `mesa-vulkan-drivers`) |
 | `vk:settings` | `PCSX2_GFX_DISC` as for `gpu:picture`, and a Vulkan driver |
 | `vk:picture-after-load` | `chimera-run` and the installed package as for `gl:rebuild-at-zero`, from a Chimera at commit 4ca6e30 or later, and a Vulkan driver |
 | `ports:columns`, `gl:rebuild-at-zero` | `<chimera>/build/meson-linux/chimera-run` and the installed `<chimera>/build/Cores/pcsx2.chimeraCore`; found through `$CHIMERA_ROOT`, then `chimera-checkout/`, `../../chimera`, `../chimera`, `$HOME/chimera` |

@@ -1606,7 +1606,8 @@ fi
 #
 # What these do NOT stand in for: chimera-padtest is not a game and lavapipe is not
 # a graphics card. What a game drew on a GTX 1060 is in docs/PLAN.md.
-vk_legs="vk:bridge vk:machine vk:picture vk:rerecord"
+vk_legs="vk:bridge vk:machine vk:picture vk:rerecord vk:readback"
+readbackiso="$root/tests/own/chimera-readbacktest.iso"
 if [ -z "$bios" ] || [ ! -f "$padelf" ]; then
 	for leg in $vk_legs; do report "$leg" SKIP "needs a bios and tests/own/chimera-padtest.iso"; done
 else
@@ -1673,6 +1674,30 @@ else
 			report "vk:rerecord" PASS "300 frames with a state saved and loaded around every one - a new Vulkan device each time - and the straight run, picture included; no command refused"
 		else
 			report "vk:rerecord" FAIL "$(diff <(digests < "$work/vk.v300.txt") <(digests < "$work/vk.rr.txt") | head -4 | tr '\n' ' ') $(grep -m1 'calls were refused' "$work/vk.rr.err") $(grep -m1 'the guest died' "$work/vk.rr.err")"
+		fi
+
+		# A game that reads back what it drew (chimera issue 560). The texture
+		# cache reads through download textures of its own, and both rebuilds
+		# after a load keep the texture cache while the device under it is
+		# replaced; kept, those were the old device's, and the next readback
+		# went to the old device's memory. chimera-readbacktest reads
+		# a square back every frame. With a state saved and loaded around
+		# every frame, a readback through the old device's texture is a
+		# command the bridge refuses (over 200 in 120 frames before the fix).
+		if [ ! -f "$readbackiso" ]; then
+			report "vk:readback" SKIP "tests/own/chimera-readbacktest.iso is missing"
+		else
+			cp "$readbackiso" "$vkw/chimera-readbacktest.iso"
+			printf '{"disc":["chimera-readbacktest.iso"]}' > "$vkw/slots"
+			vkrun rbs vulkan-hw --frames 120
+			vkrun rbr vulkan-hw --frames 120 --rerecord
+			printf '{"disc":["chimera-padtest.iso"]}' > "$vkw/slots"
+			if grep -q '^frames=120$' "$work/vk.rbr.txt" && [ "$(digests < "$work/vk.rbs.txt")" = "$(digests < "$work/vk.rbr.txt")" ] \
+				&& ! grep -q 'calls were refused' "$work/vk.rbs.err" "$work/vk.rbr.err"; then
+				report "vk:readback" PASS "120 frames of a program that reads back what it drew, a state saved and loaded around every one: every readback on the new device, no command refused, and the straight run"
+			else
+				report "vk:readback" FAIL "$(grep -h -m1 'calls were refused' "$work/vk.rbs.err" "$work/vk.rbr.err") $(diff <(digests < "$work/vk.rbs.txt") <(digests < "$work/vk.rbr.txt") | head -4 | tr '\n' ' ') $(grep -h -m1 'the guest died' "$work/vk.rbr.err")"
+			fi
 		fi
 	fi
 fi
