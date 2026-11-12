@@ -50,7 +50,10 @@ jobs:
 
   core-gate:
     name: core gate (builds, refuses without a bios, runs on OpenPS2BIOS, GPU bridges on software drivers)
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, not ubuntu-latest: on GitHub's 26.04 image GCC builds for
+    # x86-64-v3 (AVX2, FMA) by default, so a core built there would not run
+    # on an older processor and would round floating point differently
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
@@ -172,7 +175,10 @@ jobs:
     # default retail bios says SKIP. This job also BUILDS the package, which is
     # what publishes the artifact and proves the packaging is deterministic.
     name: frontend gate (Chimera)
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, not ubuntu-latest: on GitHub's 26.04 image GCC builds for
+    # x86-64-v3 (AVX2, FMA) by default, so a core built there would not run
+    # on an older processor and would round floating point differently
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
