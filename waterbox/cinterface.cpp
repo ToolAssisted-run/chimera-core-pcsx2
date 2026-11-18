@@ -76,6 +76,12 @@
 #include "common/StringUtil.h"
 #include "fmt/format.h"
 #include "common/SettingsInterface.h"
+
+/* this core's windows in Chimera's Emulator menu: miniBox's ready-made Export
+ * Save Data, built on its exports (Chimera has no tool of its own for a core,
+ * Chimera issue 610) */
+#define WBX_WINDOWS_IMPLEMENTATION
+#include <waterbox_windows.h>
 #ifdef CHIMERA_ARCADE
 /* The NAMCO board, when the project says this machine is one (waterbox/arcade/). */
 #include "chimera-arcade.h"
